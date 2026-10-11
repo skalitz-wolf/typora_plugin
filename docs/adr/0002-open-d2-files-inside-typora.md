@@ -20,6 +20,12 @@
 单独开关，与代码块渲染解耦。预览不落盘为 `.svg`——编辑时每次写盘会污染 git diff，
 而发布所需的 `.svg` 由 d2-vscode 的导出功能负责。
 
-源码编辑器优先用全局 `window.CodeMirror`（Typora 在 `frame.js` 里暴露，
-含 112 个 mode），借 `yaml` 语法高亮（Typora 无 d2 mode）；实例化失败则退回
-纯 `textarea`，保证在打包版 API 被裁剪时仍可用。
+源码面板用纯 `textarea`，**不用 `window.CodeMirror`**。一开始试过后者：Typora 确实
+全局暴露了 CodeMirror（112 个 mode），但它是**被 Typora 魔改过的**——补丁代码在
+`frame.js` 的 `addChangeToHistory` 里读 `cm.editor.sourceView`，而 `cm.editor` 只存在于
+Typora 自己创建的实例上。第三方实例一旦调用 `setValue()` 就会抛
+`Cannot read properties of undefined (reading 'sourceView')`，且是在 Typora 的历史栈里抛的，
+无法从插件侧兜住。改用 textarea 后不依赖任何 Typora 内部结构，也更能扛 Typora 升级。
+
+另外 `_deactivate()` 也包了 try/catch：它会在 `_activate()` 的 catch 里被调用，
+自身再抛错就会把真正的失败原因盖掉（这正是排查时踩到的坑）。

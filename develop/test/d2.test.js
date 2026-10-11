@@ -231,38 +231,17 @@ describe("d2 file view - source handling", () => {
     assert.deepEqual(view._meta(), { theme: 3, layout: "elk", sketch: true, pad: 20, scale: 0 })
   })
 
-  it("falls back to the textarea when CodeMirror is unavailable", () => {
+  it("reads and writes through the textarea, never through window.CodeMirror", () => {
     const view = buildFileView()
-    const textarea = { value: "x -> y", classList: { add() {}, remove() {} } }
-    view.entities = { sourcePane: { appendChild() {} }, textarea }
-    window.CodeMirror = undefined
-    view._ensureEditor()
-    assert.equal(view.editor, null)
+    const textarea = { value: "x -> y" }
+    view.entities = { textarea }
+    // Typora patches its bundled CodeMirror so third-party instances break on setValue;
+    // the file view must therefore never touch it.
+    window.CodeMirror = () => { throw new Error("must not be instantiated") }
     assert.equal(view._getEditorValue(), "x -> y")
-  })
-
-  it("uses CodeMirror when it is available", () => {
-    const view = buildFileView()
-    const textarea = { value: "x -> y", classList: { add() {}, remove() {} } }
-    let captured = null
-    window.CodeMirror = (target, options) => {
-      captured = options
-      let value = options.value
-      return {
-        getValue: () => value,
-        setValue: v => { value = v },
-        on() {},
-        refresh() {},
-      }
-    }
-    // The harness lacks document.createElement, so stub the host the editor mounts into.
-    view.entities = { sourcePane: { appendChild() {} }, textarea }
-    view._createHost = () => ({})
-    view._ensureEditor()
-    assert.ok(view.editor)
-    assert.equal(captured.mode, "yaml")
-    assert.equal(captured.lineNumbers, true)
-    assert.equal(view._getEditorValue(), "x -> y")
+    view._setEditorValue("a -> b")
+    assert.equal(textarea.value, "a -> b")
+    assert.equal(view.editor, undefined)
     window.CodeMirror = undefined
   })
 })

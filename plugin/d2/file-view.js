@@ -5,15 +5,20 @@ const ACTIVE_CLASS = "plugin-d2-file-active"
 
 /**
  * Lets Typora open standalone .d2 files: registers the extension, then takes over the
- * editing area with a source pane (CodeMirror, falling back to a textarea) plus a live
- * SVG preview. Mirrors the approach used by the html_editor plugin.
+ * editing area with a source pane (a plain textarea) plus a live SVG preview.
+ * Mirrors the approach used by the html_editor plugin.
+ *
+ * The source pane deliberately uses a textarea rather than window.CodeMirror:
+ * Typora patches its bundled CodeMirror, and the patched history code reads
+ * `cm.editor.sourceView`, which only exists on instances Typora itself created.
+ * Handing it a third-party instance throws "Cannot read properties of undefined
+ * (reading 'sourceView')" as soon as setValue() runs.
  */
 class D2FileView {
   constructor(plugin) {
     this.plugin = plugin
     this.utils = plugin.utils
     this.renderer = new D2Renderer({ config: plugin.config, utils: this.utils })
-    this.editor = null          // CodeMirror instance when available
     this.activeFile = ""
     this.savedSource = ""
     this.currentStat = null
@@ -138,15 +143,6 @@ class D2FileView {
       tab-size: 2;
       white-space: pre;
     }
-    #plugin-d2-file-view .CodeMirror {
-      width: 100%;
-      height: 100%;
-      font-family: "Cascadia Code", Consolas, "Courier New", monospace;
-      font-size: 14px;
-      line-height: 1.55;
-      background: transparent;
-      color: inherit;
-    }
     #plugin-d2-file-view .d2fv-preview-pane {
       display: flex;
       align-items: flex-start;
@@ -251,7 +247,7 @@ class D2FileView {
       File.SupportedFiles.push(EXT.slice(1))
       changed = true
     }
-    if (changed && refresh) File.editor.library.refreshPanelCommand()
+    if (changed && refresh && File.editor?.library?.refreshPanelCommand) File.editor.library.refreshPanelCommand()
     return changed
   }
 
@@ -280,7 +276,8 @@ class D2FileView {
       this._setViewMode(this.plugin.config.FILE_VIEW_DEFAULT_MODE)
       this._scheduleRender()
     } catch (error) {
-      this._notify(error.message, "error")
+      console.error("[d2] failed to open the .d2 file view:", error)
+      this._notify(error?.message || String(error), "error")
       this._deactivate()
     }
   }
@@ -289,14 +286,20 @@ class D2FileView {
     this.activationToken++
     this.renderToken++
     clearTimeout(this.renderTimer)
-    this.entities.content.classList.remove(ACTIVE_CLASS)
-    this.entities.root.classList.add("plugin-common-hidden")
     this.activeFile = ""
     this.savedSource = ""
     this.currentStat = null
-    this._setEditorValue("")
-    this.entities.preview.replaceChildren()
-    this._syncUI()
+    // This also runs from _activate's catch block, so it must never throw: a failure
+    // here would replace the original error with a misleading secondary one.
+    try {
+      this.entities.content.classList.remove(ACTIVE_CLASS)
+      this.entities.root.classList.add("plugin-common-hidden")
+      this._setEditorValue("")
+      this.entities.preview.replaceChildren()
+      this._syncUI()
+    } catch (error) {
+      console.error("[d2] failed to reset the file view:", error)
+    }
   }
 
   _loadSource = async filePath => {
@@ -314,44 +317,10 @@ class D2FileView {
 
   // ---------- editing surface ----------
 
-  /**
-   * Prefer CodeMirror (Typora exposes it globally) for syntax highlighting, and fall
-   * back to the plain textarea when the bundled build cannot be instantiated.
-   */
-  _ensureEditor = () => {
-    if (this.editor || this._editorAttempted) return
-    this._editorAttempted = true
-    const CodeMirror = window.CodeMirror
-    if (typeof CodeMirror !== "function") return
-    try {
-      const host = this._createHost()
-      this.entities.sourcePane.appendChild(host)
-      this.entities.textarea.classList.add("plugin-common-hidden")
-      this.editor = CodeMirror(host, {
-        value: this._getEditorValue(),
-        mode: this.plugin.config.MAPPING_LANGUAGE,
-        lineNumbers: true,
-        lineWrapping: false,
-        theme: "typora-default",
-        viewportMargin: 50,
-      })
-      this.editor.on("change", () => this._onInput())
-    } catch (error) {
-      this.editor = null
-      this.entities.textarea.classList.remove("plugin-common-hidden")
-    }
-  }
-
-  _createHost = () => document.createElement("div")
-
-  _getEditorValue = () => this.editor ? this.editor.getValue() : this.entities.textarea.value
+  _getEditorValue = () => this.entities.textarea.value
 
   _setEditorValue = value => {
-    if (this.editor) {
-      if (this.editor.getValue() !== value) this.editor.setValue(value)
-    } else {
-      this.entities.textarea.value = value
-    }
+    if (this.entities.textarea.value !== value) this.entities.textarea.value = value
   }
 
   _onKeydown = event => {
@@ -384,7 +353,6 @@ class D2FileView {
 
   _render = async () => {
     if (!this.activeFile) return
-    this._ensureEditor()
     const token = ++this.renderToken
     const source = this._getEditorValue()
     try {
@@ -422,7 +390,6 @@ class D2FileView {
     this.entities.views.forEach(button => {
       button.setAttribute("aria-pressed", String(button.dataset.view === view))
     })
-    if (this.editor) this.editor.refresh()
   }
 
   // ---------- save / reload ----------
