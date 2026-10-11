@@ -1918,5 +1918,30 @@
     "warning.corrupt": "仓库数据损坏，原文件已备份并创建了新的空仓库",
     "warning.unsupportedVersion": "仓库数据版本高于当前插件支持范围，已停止写入以保护原数据",
     "warning.load": "仓库数据无法读取，请查看开发者工具控制台"
+  },
+  "d2": {
+    "pluginName": "D2",
+    "$label.D2_PATH": "d2 可执行文件路径",
+    "$label.MAPPING_LANGUAGE": "编辑态语法高亮",
+    "$label.THEME": "主题",
+    "$label.LAYOUT": "布局引擎",
+    "$label.SKETCH": "手绘风格",
+    "$label.PAD": "留白",
+    "$label.SCALE": "缩放",
+    "$label.FONT_REGULAR": "正文字体（.ttf）",
+    "$title.renderingEngine": "渲染引擎",
+    "$title.defaultOptions": "默认渲染参数",
+    "$tooltip.d2Path": "d2 的绝对路径；也可只写命令名（如 d2）交给 PATH 解析",
+    "$tooltip.mappingLanguage": "Typora 没有 d2 语法，编辑时借用其他语言的语法高亮",
+    "$tooltip.theme": "d2 主题 ID，可用 `d2 themes` 查看",
+    "$tooltip.pad": "图形四周留白（像素）",
+    "$tooltip.scale": "0 表示跟随 d2 默认；1 表示不缩放",
+    "$tooltip.fontRegular": "仅在导出含中文的图（非 SVG）时需要，留空则用 d2 默认字体",
+    "$tooltip.timeout": "d2 最长运行秒数，超时视为渲染失败",
+    "$tooltip.cacheSize": "内存中保留的渲染结果条数",
+    "$label.CACHE_SIZE": "缓存数量",
+    "$option.LAYOUT.dagre": "Dagre",
+    "$option.LAYOUT.elk": "ELK",
+    "$option.LAYOUT.tala": "TALA"
   }
 }

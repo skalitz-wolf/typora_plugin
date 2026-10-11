@@ -1918,5 +1918,30 @@
     "warning.corrupt": "Repository data was corrupt. The original file was backed up and a new empty repository was created.",
     "warning.unsupportedVersion": "The repository data version is newer than this plugin supports. Writes have stopped to protect the original data.",
     "warning.load": "Repository data cannot be read. See the developer console."
+  },
+  "d2": {
+    "pluginName": "D2",
+    "$label.D2_PATH": "d2 Executable Path",
+    "$label.MAPPING_LANGUAGE": "Editor Syntax Highlighting",
+    "$label.THEME": "Theme",
+    "$label.LAYOUT": "Layout",
+    "$label.SKETCH": "Sketch",
+    "$label.PAD": "Padding",
+    "$label.SCALE": "Scale",
+    "$label.FONT_REGULAR": "Regular Font (.ttf)",
+    "$title.renderingEngine": "Rendering Engine",
+    "$title.defaultOptions": "Default Rendering Options",
+    "$tooltip.d2Path": "Absolute path to d2, or a bare command name such as d2 to use PATH",
+    "$tooltip.mappingLanguage": "Typora ships no d2 grammar; another one is borrowed for highlighting while editing",
+    "$tooltip.theme": "d2 theme ID, see `d2 themes`",
+    "$tooltip.pad": "Pixels padded around the diagram",
+    "$tooltip.scale": "0 keeps d2's default; 1 disables scaling",
+    "$tooltip.fontRegular": "Only needed for non-SVG exports of CJK diagrams; leave empty to use d2's default font",
+    "$tooltip.timeout": "Maximum seconds d2 may run before the render is treated as failed",
+    "$tooltip.cacheSize": "Number of distinct render results kept in memory",
+    "$label.CACHE_SIZE": "Cache Size",
+    "$option.LAYOUT.dagre": "Dagre",
+    "$option.LAYOUT.elk": "ELK",
+    "$option.LAYOUT.tala": "TALA"
   }
 }

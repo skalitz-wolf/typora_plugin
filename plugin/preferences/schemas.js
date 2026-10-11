@@ -1383,6 +1383,28 @@ const schema_marp = () => [
   FRAG.SettingHandler(),
 ]
 
+const schema_d2 = () => [
+  FRAG.Base(true),
+  FRAG.LangMode(),
+  Group("renderingEngine",
+    Text("D2_PATH").Tooltip("d2Path"),
+    Text("MAPPING_LANGUAGE").Tooltip("mappingLanguage"),
+    Integer("TIMEOUT").Unit(UNITS.second).Min(1).Tooltip("timeout"),
+    Integer("CACHE_SIZE").Min(1).Tooltip("cacheSize"),
+    Text("FONT_REGULAR").Tooltip("fontRegular"),
+  ),
+  Group("defaultOptions",
+    Integer("THEME").Tooltip("theme"),
+    Segment("LAYOUT").Options(["dagre", "elk", "tala"]),
+    Switch("SKETCH"),
+    Integer("PAD").Unit(UNITS.pixel).Min(0).Tooltip("pad"),
+    Float("SCALE").Min(0).Tooltip("scale"),
+  ),
+  FRAG.ChartStyle(),
+  FRAG.Template(),
+  FRAG.SettingHandler(),
+]
+
 const schema_callouts = () => [
   FRAG.Base(true),
   Group("style",
@@ -1665,6 +1687,7 @@ const RAW_SCHEMAS = {
   function_plot: schema_function_plot,
   calendar: schema_calendar,
   abc: schema_abc,
+  d2: schema_d2,
   drawIO: schema_drawIO,
   infographic: schema_infographic,
   plantUML: schema_plantUML,

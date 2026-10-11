@@ -2271,6 +2271,7 @@ LIST = [
 NAME = "__COMPONENT_PLUGINS__"
 LIST = [
   "markmap",
+  "d2",
   "echarts",
   "chart",
   "vega_lite",
@@ -3420,6 +3421,72 @@ M:4/4
 L:1/4
 K:C
 G2 G2|A2 A2|B2 B2|c3 z|G2 G2|A2 A2|B2 G2|c3 z||"""
+
+
+[d2]
+# =========== [ Basic ] ===========
+ENABLE = false
+NAME = ""
+HOTKEY = ""
+
+# =========== [ Rendering Engine ] ===========
+# Path to the d2 executable. Use an absolute path, or a bare command name
+# (e.g. "d2") to let the system PATH resolve it.
+D2_PATH = "C:\\Program Files\\D2\\d2.exe"
+
+# Maximum time (seconds) d2 may run before it is treated as failed
+TIMEOUT = 60
+
+# Cache size: number of distinct (source, options) results kept in memory
+CACHE_SIZE = 50
+
+# Optional .ttf font used when rendering. Only needed for non-SVG exports of
+# CJK diagrams; leave empty to use d2's bundled default font.
+FONT_REGULAR = ""
+
+# =========== [ Language & Mode ] ===========
+# Language used to render d2 code block
+LANGUAGE = "d2"
+
+# CodeMirror language mapped onto the fence. Typora ships no d2 mode, so we
+# borrow another grammar purely for syntax highlighting while editing.
+MAPPING_LANGUAGE = "yaml"
+
+# Interactive Mode: Prevents accidental mouse touches
+INTERACTIVE_MODE = true
+
+# =========== [ Default Rendering Options ] ===========
+# Every option below can be overridden per fence via the BlockCodeConfig block.
+# Theme ID (see `d2 themes`), layout engine, and hand-drawn sketch style
+THEME = 0
+LAYOUT = "dagre"
+SKETCH = false
+
+# Pixels padded around the diagram
+PAD = 40
+
+# Output scale. 0 keeps d2's default (SVG fits to screen); 1 disables scaling
+SCALE = 0
+
+# Default Fence Height, if 'auto' it adapts to the content
+DEFAULT_FENCE_HEIGHT = "auto"
+
+# Default Fence Background Color
+DEFAULT_FENCE_BACKGROUND_COLOR = "transparent"
+
+# =========== [ Template ] ===========
+# Template: Default sample padding content when inserting a code block
+TEMPLATE = """
+// ==BlockCodeConfig==
+// @theme    0
+// @layout   dagre
+// @width    auto
+// @height   auto
+// ==/BlockCodeConfig==
+
+client -> gateway: HTTPS
+gateway -> user-service
+gateway -> order-service"""
 
 
 [drawIO]
