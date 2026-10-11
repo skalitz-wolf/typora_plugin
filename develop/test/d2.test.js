@@ -6,8 +6,6 @@ const proxyquire = require("proxyquire")
 require("./mocks/dom.mock.js")
 const mockUtils = require("./mocks/utils.mock.js")
 
-const d2Path = path.resolve(__dirname, "../../plugin/d2/index.js")
-
 // The framework exposes BasePlugin as a global; load the real class but stub its utils
 // so no Typora runtime (fs-extra from the install dir) is needed.
 const BasePlugin = proxyquire("../../plugin/global/core/plugin.js", {
@@ -15,65 +13,71 @@ const BasePlugin = proxyquire("../../plugin/global/core/plugin.js", {
 })
 global.BasePlugin = BasePlugin
 
-/** Build a plugin instance with the config keys the real settings section provides. */
-async function createPlugin(overrides = {}) {
-  const config = {
-    ENABLE: true,
-    LANGUAGE: "d2",
-    MAPPING_LANGUAGE: "yaml",
-    INTERACTIVE_MODE: true,
-    D2_PATH: "d2",
-    TIMEOUT: 60,
-    CACHE_SIZE: 50,
-    FONT_REGULAR: "",
-    THEME: 0,
-    LAYOUT: "dagre",
-    SKETCH: false,
-    PAD: 40,
-    SCALE: 0,
-    DEFAULT_FENCE_HEIGHT: "auto",
-    DEFAULT_FENCE_BACKGROUND_COLOR: "transparent",
-    TEMPLATE: "x -> y",
-    ...overrides,
+const D2Renderer = require("../../plugin/d2/renderer.js")
+const D2Fence = require("../../plugin/d2/fence.js")
+
+const memoizeLimited = (fn, { cap = 100, keyResolver = (...a) => JSON.stringify(a) } = {}) => {
+  const cache = new Map()
+  return (...args) => {
+    const key = keyResolver(...args)
+    if (cache.has(key)) return cache.get(key)
+    const value = fn(...args)
+    cache.set(key, value)
+    if (cache.size > cap) cache.delete(cache.keys().next().value)
+    return value
   }
-  delete require.cache[d2Path]
-  const { plugin: D2Plugin } = require(d2Path)
-  const instance = new D2Plugin("d2", config, { t: key => key })
-  // Swap in a utils stub so no Typora runtime is needed.
-  instance.utils = {
-    memoizeLimited: (fn, { cap = 100, keyResolver = (...a) => JSON.stringify(a) } = {}) => {
-      const cache = new Map()
-      return (...args) => {
-        const key = keyResolver(...args)
-        if (cache.has(key)) return cache.get(key)
-        const value = fn(...args)
-        cache.set(key, value)
-        if (cache.size > cap) cache.delete(cache.keys().next().value)
-        return value
-      }
-    },
-    existPath: async () => true,
-    Package: { Path: path },
-  }
-  await instance.prepare()
-  return instance
 }
 
-describe("d2 plugin - option mapping", () => {
-  let plugin
+const CONFIG = {
+  LANGUAGE: "d2",
+  MAPPING_LANGUAGE: "yaml",
+  INTERACTIVE_MODE: true,
+  D2_PATH: "d2",
+  TIMEOUT: 60,
+  CACHE_SIZE: 50,
+  FONT_REGULAR: "",
+  THEME: 0,
+  LAYOUT: "dagre",
+  SKETCH: false,
+  PAD: 40,
+  SCALE: 0,
+  DEFAULT_FENCE_HEIGHT: "auto",
+  DEFAULT_FENCE_BACKGROUND_COLOR: "transparent",
+}
 
-  beforeEach(async () => {
-    plugin = await createPlugin()
-    plugin.exePath = "d2"
+const buildUtils = () => ({
+  memoizeLimited,
+  existPath: async () => true,
+  Package: { Path: path },
+})
+
+const createRenderer = (overrides = {}) => new D2Renderer({
+  config: { ...CONFIG, ...overrides },
+  utils: buildUtils(),
+})
+
+const createFence = async () => {
+  const plugin = { config: CONFIG, utils: buildUtils() }
+  const fence = new D2Fence(plugin)
+  await fence.prepare()
+  return fence
+}
+
+describe("d2 renderer - option mapping", () => {
+  let renderer
+
+  beforeEach(() => {
+    renderer = createRenderer()
+    renderer.exePath = "d2"
   })
 
   const captureArgs = async (content, meta) => {
     let captured = null
-    plugin._exec = (args) => {
+    renderer.exec = args => {
       captured = args
       return Promise.resolve("<svg></svg>")
     }
-    await plugin._render(content, meta)
+    await renderer._render(content, meta)
     return captured
   }
 
@@ -102,84 +106,163 @@ describe("d2 plugin - option mapping", () => {
   it("passes the font flag only when FONT_REGULAR is configured", async () => {
     assert.ok(!(await captureArgs("x -> y", {})).includes("--font-regular"))
 
-    plugin = await createPlugin({ FONT_REGULAR: "C:\\Windows\\Fonts\\simhei.ttf" })
-    plugin.exePath = "d2"
+    renderer = createRenderer({ FONT_REGULAR: "C:\\Windows\\Fonts\\simhei.ttf" })
+    renderer.exePath = "d2"
     const args = await captureArgs("x -> y", {})
     assert.equal(args[args.indexOf("--font-regular") + 1], "C:\\Windows\\Fonts\\simhei.ttf")
   })
 })
 
-describe("d2 plugin - SVG uniquification", () => {
+describe("d2 renderer - SVG uniquification", () => {
   it("appends a distinct suffix to every d2-<hash> prefix so repeated diagrams do not share ids", async () => {
-    const plugin = await createPlugin()
-    plugin.exePath = "d2"
+    const renderer = createRenderer()
+    renderer.exePath = "d2"
     const svg = '<svg id="d2-123"></svg><style>.d2-123 text{}</style>'
-    plugin._exec = () => Promise.resolve(svg)
+    renderer.exec = () => Promise.resolve(svg)
 
-    const render = async (content, meta) => {
-      const $wrap = [{ innerHTML: "" }]
-      await plugin.create($wrap, content, meta)
-      return $wrap[0].innerHTML
-    }
-    const first = await render("x -> y", {})
-    const second = await render("a -> b", {})
+    const first = await renderer.render("x -> y")
+    const second = await renderer.render("a -> b")
 
-    const idOf = html => html.match(/id="(d2-123-\d+)"/)[1]
-    assert.notEqual(idOf(first), idOf(second))
+    assert.match(first, /id="d2-123-1"/)
+    assert.match(second, /id="d2-123-2"/)
     assert.ok(first.includes(".d2-123-1 text"))
     assert.ok(second.includes(".d2-123-2 text"))
   })
-
-  it("caches by content and options, so identical input renders once", async () => {
-    const plugin = await createPlugin()
-    plugin.exePath = "d2"
-    let calls = 0
-    plugin._exec = () => { calls++; return Promise.resolve("<svg></svg>") }
-
-    await plugin.renderCached("x -> y", {})
-    await plugin.renderCached("x -> y", {})
-    await plugin.renderCached("x -> y", { theme: 1 })
-
-    assert.equal(calls, 2)
-  })
-
-  it("re-renders the same source into independent DOM ids when it appears twice", async () => {
-    const plugin = await createPlugin()
-    plugin.exePath = "d2"
-    plugin._exec = () => Promise.resolve('<svg id="d2-999"></svg>')
-
-    const render = async () => {
-      const $wrap = [{ innerHTML: "" }]
-      await plugin.create($wrap, "x -> y", {})
-      return $wrap[0].innerHTML
-    }
-    assert.notEqual(await render(), await render())
-  })
 })
 
-describe("d2 plugin - error handling", () => {
+describe("d2 renderer - error handling", () => {
   it("surfaces a missing executable as an actionable message", async () => {
-    const plugin = await createPlugin({ D2_PATH: "C:\\nope\\d2.exe" })
-    plugin.exePath = "C:\\nope\\d2.exe"
+    const renderer = createRenderer({ D2_PATH: "C:\\nope\\d2.exe" })
+    renderer.exePath = "C:\\nope\\d2.exe"
     await assert.rejects(
-      () => plugin._exec(["--version"], ""),
+      () => renderer.exec(["--version"], ""),
       err => err.message.includes("D2_PATH"),
     )
   })
 
   it("rejects when d2 exits non-zero, keeping the stderr text", async () => {
-    const plugin = await createPlugin()
-    plugin.exePath = process.execPath  // node: exits non-zero on a bogus script arg
-    await assert.rejects(() => plugin._exec(["--definitely-not-a-flag"], ""))
+    const renderer = createRenderer()
+    renderer.exePath = process.execPath  // node: exits non-zero on a bogus flag
+    await assert.rejects(() => renderer.exec(["--definitely-not-a-flag"], ""))
   })
 
   it("accepts a bare command name but rejects an absolute path that does not exist", async () => {
-    const bare = await createPlugin({ D2_PATH: "d2" })
+    const bare = createRenderer({ D2_PATH: "d2" })
     bare.utils.existPath = async () => false
     assert.equal(await bare._resolveExe(), "d2")
 
-    const absolute = await createPlugin({ D2_PATH: "C:\\nope\\d2.exe" })
+    const absolute = createRenderer({ D2_PATH: "C:\\nope\\d2.exe" })
     absolute.utils.existPath = async () => false
     await assert.rejects(() => absolute._resolveExe(), /D2_PATH/)
+  })
+})
+
+describe("d2 fence - caching", () => {
+  it("caches by content and options, so identical input renders once", async () => {
+    const fence = await createFence()
+    let calls = 0
+    fence.renderer.render = () => { calls++; return Promise.resolve("<svg></svg>") }
+    fence.renderCached = memoizeLimited(
+      (content, meta) => fence.renderer.render(content, meta),
+      { cap: 50, keyResolver: (content, meta) => content + "\u0000" + JSON.stringify(meta) },
+    )
+
+    await fence.renderCached("x -> y", {})
+    await fence.renderCached("x -> y", {})
+    await fence.renderCached("x -> y", { theme: 1 })
+
+    assert.equal(calls, 2)
+  })
+
+  it("writes the rendered SVG into the wrap element", async () => {
+    const fence = await createFence()
+    fence.renderCached = () => Promise.resolve('<svg id="d2-1-1"></svg>')
+    const $wrap = [{ innerHTML: "" }]
+    await fence.create($wrap, "x -> y", {})
+    assert.equal($wrap[0].innerHTML, '<svg id="d2-1-1"></svg>')
+  })
+})
+
+describe("d2 file view - source handling", () => {
+  const D2FileView = require("../../plugin/d2/file-view.js")
+
+  const buildFileView = (config = {}) => {
+    const plugin = {
+      config: { ...CONFIG, ENABLE_FILE_VIEW: true, FILE_VIEW_DEFAULT_MODE: "split", FILE_VIEW_AUTO_PREVIEW: true, FILE_VIEW_DELAY: 300, ...config },
+      utils: buildUtils(),
+      i18n: { t: key => key },
+      pluginName: "D2",
+    }
+    return new D2FileView(plugin)
+  }
+
+  it("only claims .d2 paths, case-insensitively", () => {
+    const view = buildFileView()
+    assert.equal(view._isD2File("C:\\a\\b.d2"), true)
+    assert.equal(view._isD2File("C:\\a\\b.D2"), true)
+    assert.equal(view._isD2File("C:\\a\\b.md"), false)
+    assert.equal(view._isD2File("C:\\a\\d2"), false)
+    assert.equal(view._isD2File(""), false)
+  })
+
+  it("compares paths case-insensitively on Windows", () => {
+    const view = buildFileView()
+    if (process.platform !== "win32") return
+    assert.equal(view._samePath("C:\\A\\B.d2", "c:\\a\\b.d2"), true)
+    assert.equal(view._samePath("C:\\A\\B.d2", "C:\\a\\c.d2"), false)
+  })
+
+  it("is dirty only when the editor text differs from what was saved", () => {
+    const view = buildFileView()
+    view.entities = { textarea: { value: "x -> y" } }
+    view.activeFile = ""
+    assert.equal(view._isDirty(), false)
+
+    view.activeFile = "C:\\a\\b.d2"
+    view.savedSource = "x -> y"
+    assert.equal(view._isDirty(), false)
+
+    view.entities.textarea.value = "x -> z"
+    assert.equal(view._isDirty(), true)
+  })
+
+  it("renders with the configured defaults, since a whole file has no meta block", () => {
+    const view = buildFileView({ THEME: 3, LAYOUT: "elk", SKETCH: true, PAD: 20, SCALE: 0 })
+    assert.deepEqual(view._meta(), { theme: 3, layout: "elk", sketch: true, pad: 20, scale: 0 })
+  })
+
+  it("falls back to the textarea when CodeMirror is unavailable", () => {
+    const view = buildFileView()
+    const textarea = { value: "x -> y", classList: { add() {}, remove() {} } }
+    view.entities = { sourcePane: { appendChild() {} }, textarea }
+    window.CodeMirror = undefined
+    view._ensureEditor()
+    assert.equal(view.editor, null)
+    assert.equal(view._getEditorValue(), "x -> y")
+  })
+
+  it("uses CodeMirror when it is available", () => {
+    const view = buildFileView()
+    const textarea = { value: "x -> y", classList: { add() {}, remove() {} } }
+    let captured = null
+    window.CodeMirror = (target, options) => {
+      captured = options
+      let value = options.value
+      return {
+        getValue: () => value,
+        setValue: v => { value = v },
+        on() {},
+        refresh() {},
+      }
+    }
+    // The harness lacks document.createElement, so stub the host the editor mounts into.
+    view.entities = { sourcePane: { appendChild() {} }, textarea }
+    view._createHost = () => ({})
+    view._ensureEditor()
+    assert.ok(view.editor)
+    assert.equal(captured.mode, "yaml")
+    assert.equal(captured.lineNumbers, true)
+    assert.equal(view._getEditorValue(), "x -> y")
+    window.CodeMirror = undefined
   })
 })

@@ -3455,6 +3455,24 @@ MAPPING_LANGUAGE = "yaml"
 # Interactive Mode: Prevents accidental mouse touches
 INTERACTIVE_MODE = true
 
+# =========== [ Standalone .d2 Files ] ===========
+# Open .d2 files inside Typora with a source pane and a live preview, instead of
+# handing them to the system's default editor. Registers the extension in the
+# sidebar file tree.
+ENABLE_FILE_VIEW = true
+
+# Default pane layout for .d2 files
+#   source : Source only
+#   preview: Preview only
+#   split  : Source and preview side by side
+FILE_VIEW_DEFAULT_MODE = "split"
+
+# Refresh the preview while typing
+FILE_VIEW_AUTO_PREVIEW = true
+
+# Preview refresh delay (ms)
+FILE_VIEW_DELAY = 300
+
 # =========== [ Default Rendering Options ] ===========
 # Every option below can be overridden per fence via the BlockCodeConfig block.
 # Theme ID (see `d2 themes`), layout engine, and hand-drawn sketch style

@@ -18,8 +18,15 @@
 
 ## D2 插件
 
-把 ```d2 代码块渲染成 SVG，渲染走本机 `d2` 可执行文件（stdin 进、stdout 出），
-不联网、不依赖 WASM，所以结果与 d2 命令行一致。
+两种用法，共用同一个渲染内核（调本机 `d2` 可执行文件，stdin 进、stdout 出，
+不联网、不依赖 WASM，结果与 d2 命令行一致）：
+
+1. **Markdown 里的 ```d2 代码块** —— 在 `.md` 中直接出图
+2. **独立的 `.d2` 文件** —— 双击即在 Typora 里打开，源码 + 实时预览左右分栏，
+   可编辑、Ctrl+S 存回原文件
+
+渲染内核在 `plugin/d2/renderer.js`，被 `fence.js`（代码块）和 `file-view.js`
+（整文件）共用。
 
 代码块内可用 `// ==BlockCodeConfig==` 覆盖参数：
 
@@ -37,6 +44,10 @@ gateway -> user-service
 
 默认参数与可执行文件路径在 `settings.user.toml` 的 `[d2]` 段配置，
 或在 Typora 的「右键菜单 → 组件插件 → D2」里图形化修改。
+
+`.d2` 文件视图可用 `ENABLE_FILE_VIEW` 单独关闭（它接管编辑区，风险高于代码块渲染，
+所以留了独立开关）。默认视图、自动刷新、刷新延迟分别由 `FILE_VIEW_DEFAULT_MODE`、
+`FILE_VIEW_AUTO_PREVIEW`、`FILE_VIEW_DELAY` 控制。
 
 ## 安装
 

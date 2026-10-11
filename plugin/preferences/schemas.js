@@ -1386,6 +1386,12 @@ const schema_marp = () => [
 const schema_d2 = () => [
   FRAG.Base(true),
   FRAG.LangMode(),
+  Group(
+    Switch("ENABLE_FILE_VIEW"),
+    Segment("FILE_VIEW_DEFAULT_MODE").Options(["source", "preview", "split"]).ShowIf(When.true("ENABLE_FILE_VIEW")),
+    Switch("FILE_VIEW_AUTO_PREVIEW").ShowIf(When.true("ENABLE_FILE_VIEW")),
+    Integer("FILE_VIEW_DELAY").Unit(UNITS.millisecond).Min(0).ShowIf(When.true("ENABLE_FILE_VIEW")),
+  ),
   Group("renderingEngine",
     Text("D2_PATH").Tooltip("d2Path"),
     Text("MAPPING_LANGUAGE").Tooltip("mappingLanguage"),

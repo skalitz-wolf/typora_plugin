@@ -1942,6 +1942,26 @@
     "$label.CACHE_SIZE": "快取數量",
     "$option.LAYOUT.dagre": "Dagre",
     "$option.LAYOUT.elk": "ELK",
-    "$option.LAYOUT.tala": "TALA"
+    "$option.LAYOUT.tala": "TALA",
+    "fileView.save": "儲存",
+    "fileView.reload": "重新載入",
+    "fileView.external": "用外部程式開啟",
+    "fileView.source": "原始碼",
+    "fileView.preview": "預覽",
+    "fileView.split": "分割",
+    "fileView.saved": "已儲存",
+    "fileView.reloaded": "已重新載入",
+    "fileView.externalChanged": "檔案已在磁碟上被修改。是否用編輯區內容覆寫？",
+    "fileView.overwrite": "覆寫",
+    "fileView.unsavedChanges": "該檔案有未儲存的修改，是否捨棄？",
+    "fileView.discard": "捨棄",
+    "fileView.cancel": "取消",
+    "$label.ENABLE_FILE_VIEW": "在 Typora 中開啟 .d2 檔案",
+    "$label.FILE_VIEW_DEFAULT_MODE": "預設檢視",
+    "$label.FILE_VIEW_AUTO_PREVIEW": "編輯時重新整理預覽",
+    "$label.FILE_VIEW_DELAY": "預覽重新整理延遲",
+    "$option.FILE_VIEW_DEFAULT_MODE.source": "原始碼",
+    "$option.FILE_VIEW_DEFAULT_MODE.preview": "預覽",
+    "$option.FILE_VIEW_DEFAULT_MODE.split": "分割"
   }
 }
