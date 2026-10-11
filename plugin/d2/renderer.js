@@ -24,7 +24,25 @@ class D2Renderer {
    * identical diagrams in one document collide. Appending a counter keeps them apart;
    * base64 font payloads contain no "-", so this substitution is safe.
    */
-  uniquify = svg => svg.replace(/(d2-\d+)/g, `$1-${++this.seq}`)
+  uniquify = svg => this._applyNaturalSize(svg).replace(/(d2-\d+)/g, `$1-${++this.seq}`)
+
+  /**
+   * d2 emits `<svg ...viewBox="..."><svg width="W" height="H">...`, i.e. the outer
+   * element carries no width/height, so the SVG spec defaults it to width:100% and a
+   * small diagram gets stretched to fill its container. Copy the natural size from the
+   * inner element onto the outer one, so CSS `max-width:100%; height:auto` can shrink
+   * oversized diagrams while never scaling small ones up.
+   */
+  _applyNaturalSize = svg => {
+    const outer = svg.match(/^<svg\b[^>]*>/)
+    if (!outer || /\bwidth=/.test(outer[0])) return svg
+    const inner = svg.slice(outer[0].length).match(/^<svg\b[^>]*>/)
+    if (!inner) return svg
+    const width = inner[0].match(/\bwidth="(\d+(?:\.\d+)?)"/)
+    const height = inner[0].match(/\bheight="(\d+(?:\.\d+)?)"/)
+    if (!width || !height) return svg
+    return svg.replace(/^<svg\b/, `<svg width="${width[1]}" height="${height[1]}"`)
+  }
 
   render = async (content, meta = {}) => this.uniquify(await this._render(content, meta))
 

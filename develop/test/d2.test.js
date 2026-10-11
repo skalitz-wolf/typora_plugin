@@ -114,6 +114,27 @@ describe("d2 renderer - option mapping", () => {
 })
 
 describe("d2 renderer - SVG uniquification", () => {
+  it("copies the natural size from the inner svg onto the outer one", async () => {
+    // d2 emits `<svg viewBox=...><svg width=W height=H>`; without a width the outer
+    // element defaults to 100% and small diagrams stretch to fill the container.
+    const renderer = createRenderer()
+    const svg = '<svg viewBox="0 0 10 10"><svg width="256" height="434" viewBox="0 0 1 1"></svg></svg>'
+    assert.match(renderer._applyNaturalSize(svg), /^<svg width="256" height="434"/)
+  })
+
+  it("leaves an outer svg that already declares its size untouched", async () => {
+    const renderer = createRenderer()
+    const svg = '<svg width="100" height="200"><svg width="256" height="434"></svg></svg>'
+    assert.equal(renderer._applyNaturalSize(svg), svg)
+  })
+
+  it("leaves markup without a measurable inner svg untouched", async () => {
+    const renderer = createRenderer()
+    for (const svg of ["<svg viewBox='0 0 1 1'></svg>", "<svg><svg></svg></svg>", "not svg at all"]) {
+      assert.equal(renderer._applyNaturalSize(svg), svg)
+    }
+  })
+
   it("appends a distinct suffix to every d2-<hash> prefix so repeated diagrams do not share ids", async () => {
     const renderer = createRenderer()
     renderer.exePath = "d2"

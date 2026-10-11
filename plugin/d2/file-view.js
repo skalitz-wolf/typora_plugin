@@ -143,19 +143,30 @@ class D2FileView {
       tab-size: 2;
       white-space: pre;
     }
+    /*
+     * d2 emits an outer <svg> with no width/height attributes, only a viewBox, so the
+     * SVG spec defaults it to width:100%. If this wrapper is a flex item, its width
+     * would come from its content while the content asks for 100% of that width — a
+     * circular dependency the browser resolves as 0, rendering nothing. Giving the
+     * wrapper a definite width and using block layout breaks the cycle.
+     */
     #plugin-d2-file-view .d2fv-preview-pane {
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
+      display: block;
       overflow: auto;
       background: #fff;
     }
     #plugin-d2-file-view .d2fv-preview {
-      max-width: 100%;
+      width: 100%;
       padding: 16px;
       box-sizing: border-box;
     }
-    #plugin-d2-file-view .d2fv-preview svg {
+    /*
+     * d2 wraps its output in an outer <svg> that carries only a viewBox, so the SVG
+     * spec defaults its width to 100% and a small diagram would stretch to fill the
+     * pane. The renderer copies the natural width/height from the inner <svg> onto the
+     * outer element, so these rules cap oversized diagrams without scaling small ones up.
+     */
+    #plugin-d2-file-view .d2fv-preview > svg {
       display: block;
       max-width: 100%;
       height: auto;
