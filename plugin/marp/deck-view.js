@@ -56,15 +56,11 @@ class MarpDeckView {
       display: none !important;
     }
     /*
-     * Absolute, not fixed. A fixed element is positioned against the window, so when the
-     * content area does not start at the window's left edge (the sidebar is open) the
-     * pane lands in the wrong place. Absolute positioning resolves against the content
-     * element, which Typora already establishes as the containing block - the same choice
-     * the d2 and html_editor views make.
+     * Position and vertical extent come from the shared plugin-common-panel class, the same
+     * way right_outline docks its panel. Only the horizontal placement is set here, from
+     * JavaScript, because it depends on the content area's current width.
      */
     #plugin-marp-deck {
-      position: absolute;
-      z-index: 20;
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
@@ -74,6 +70,8 @@ class MarpDeckView {
       color: var(--text-color, #172033);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
       font-size: 12px;
+      right: 0;
+      height: 100%;
     }
     #plugin-marp-deck .marp-deck-header {
       display: flex;
@@ -166,7 +164,7 @@ class MarpDeckView {
   `
 
   html = () => `
-    <div id="plugin-marp-deck" class="plugin-common-hidden">
+    <div id="plugin-marp-deck" class="plugin-common-panel plugin-common-hidden">
       <div class="marp-deck-header">
         <div class="marp-deck-resizer" role="separator" aria-orientation="vertical"></div>
         <div class="marp-deck-title"></div>
@@ -369,11 +367,11 @@ class MarpDeckView {
 
     const paneWidth = this._paneWidthFor(full)
 
-    // The pane is a child of `content`, so its coordinates are relative to it: the pane
-    // sits at the right edge of the full width, which is the content area's own width.
-    root.style.top = "0"
-    root.style.height = "100%"
-    root.style.left = `${full - paneWidth}px`
+    // The pane is `position: fixed` via .plugin-common-panel, so `left` is measured from the
+    // viewport. Anchor it to the content area's right edge rather than to the window, so it
+    // sits beside the editor instead of under the sidebar.
+    const contentRect = content.getBoundingClientRect()
+    root.style.left = `${contentRect.left + full - paneWidth}px`
     root.style.width = `${paneWidth}px`
     // Narrow the editor rather than covering it. `#write` carries its own max-width, so it
     // is reset to `initial` for the narrower column, exactly as the other docked panels do.

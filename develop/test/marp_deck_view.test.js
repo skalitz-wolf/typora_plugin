@@ -198,13 +198,24 @@ describe("marp deck view - docking geometry", () => {
     assert.equal(view.entities.content.style.width, "360px")
   })
 
-  it("places the pane at the right edge of the content area, in content coordinates", () => {
+  it("anchors the pane to the content area's right edge, not the window's", () => {
     const view = buildView(1000)
     view._reposition()
-    // The pane is a child of content, so its offset is measured from content, not the window.
+    // The pane is position:fixed, so `left` is viewport-relative: the content area's left
+    // edge (0 here) plus the full width, less the pane. With a sidebar the content's left
+    // is non-zero, which is exactly why anchoring to the window would misplace it.
     assert.equal(view.entities.root.style.left, "600px")
-    assert.equal(view.entities.root.style.top, "0")
-    assert.equal(view.entities.root.style.height, "100%")
+    // Vertical extent comes from CSS (.plugin-common-panel), not from inline styles.
+    assert.equal(view.entities.root.style.top, undefined)
+    assert.equal(view.entities.root.style.height, undefined)
+  })
+
+  it("offsets the pane by the content area's left edge when a sidebar pushes it right", () => {
+    const view = buildView(1000)
+    view.entities.content.getBoundingClientRect = () => ({ left: 260, top: 40, width: 1000 })
+    view._reposition()
+    // 260 (content's left) + 1000 (full width) - 400 (pane) = 860
+    assert.equal(view.entities.root.style.left, "860px")
   })
 
   it("restores the editor to full width when the pane goes away", () => {
@@ -236,5 +247,46 @@ describe("marp deck view - view modes", () => {
     view._restoreContentWidth = () => {}
     view.setViewMode("nonsense")
     assert.equal(view.viewMode, "split")
+  })
+})
+
+describe("marp deck view - markup contract", () => {
+  /**
+   * The pane's positioning comes from the shared plugin-common-panel class rather than from
+   * this plugin's own CSS, so losing that class silently breaks the docking. These tests
+   * pin the contract that the docking maths depends on.
+   */
+  const buildViewForMarkup = () => new MarpDeckView({
+    config: { ENABLE_DECK_VIEW: true, DECK_PANE_WIDTH_PERCENT: 40 },
+    i18n: { t: k => k },
+    utils: { Package: { Path: path } },
+  })
+
+  it("carries the shared panel class, which supplies the fixed positioning", () => {
+    const html = buildViewForMarkup().html()
+    assert.match(html, /id="plugin-marp-deck"[^>]*class="[^"]*plugin-common-panel/)
+  })
+
+  it("starts hidden, so the pane only appears once deck mode is switched on", () => {
+    assert.match(buildViewForMarkup().html(), /plugin-common-hidden/)
+  })
+
+  it("offers the three view modes and both export formats as divs, not buttons", () => {
+    const html = buildViewForMarkup().html()
+    for (const view of ["source", "preview", "split"]) {
+      assert.ok(html.includes(`data-view="${view}"`), `missing the ${view} view control`)
+    }
+    assert.ok(html.includes('data-action="export-pptx"'))
+    assert.ok(html.includes('data-action="export-pdf"'))
+    // Repo rule: plugin UI must not use native button elements.
+    assert.ok(!/<button/i.test(html), "the pane must not use a native button")
+  })
+
+  it("does not set its own position, deferring to the shared panel class", () => {
+    const css = buildViewForMarkup().style()
+    const paneBlock = css.match(/#plugin-marp-deck\s*\{[^}]*\}/)[0]
+    assert.ok(!/position\s*:/.test(paneBlock), "the pane must not override the shared positioning")
+    assert.match(paneBlock, /right:\s*0/)
+    assert.match(paneBlock, /height:\s*100%/)
   })
 })
