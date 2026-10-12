@@ -151,7 +151,7 @@ class MarpDeck {
    */
   render = async markdown => {
     const result = this._getMarp().render(markdown || "", { htmlAsArray: true })
-    const css = this._buildCss(result.css)
+    const css = await this._buildCss(result.css)
     const slides = []
 
     for (let index = 0; index < result.html.length; index++) {
@@ -166,10 +166,31 @@ class MarpDeck {
     return slides
   }
 
-  _buildCss = css => {
+  _buildCss = async css => {
     let out = stripCharset(css)
     if (!this.options.allowRemoteFonts) out = stripImports(out)
-    return removeScoping(out)
+    out = removeScoping(out)
+    // Extra fonts come after the theme so they can override its stack, but before the
+    // scoping removal has any effect on them (they carry no marpit prefix).
+    const extra = await this._loadExtraFonts()
+    return extra ? `${out}\n${extra}` : out
+  }
+
+  /** Loads any configured extra fonts once, so a deck with many slides reads them once. */
+  _loadExtraFonts = async () => {
+    if (this._extraFontsCss !== undefined) return this._extraFontsCss
+    const load = this.options.loadFonts
+    if (typeof load !== "function") {
+      this._extraFontsCss = ""
+      return this._extraFontsCss
+    }
+    try {
+      this._extraFontsCss = (await load()) || ""
+    } catch (error) {
+      console.error("[marp] could not load extra fonts:", error)
+      this._extraFontsCss = ""
+    }
+    return this._extraFontsCss
   }
 
   _toRasterReadySvg = async (slideHtml, css) => {

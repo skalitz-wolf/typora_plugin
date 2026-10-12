@@ -3740,6 +3740,10 @@ DECK_EXPORT_SCALE = 2
 # waiting on the network; text then falls back to system fonts.
 ALLOW_REMOTE_FONTS = false
 
+# Optional directory of font files (.ttf/.otf/.woff/.woff2) to embed into the deck.
+# Leave empty to use the system fonts, which is what makes CJK and emoji render.
+FONT_DIR = ""
+
 # =========== [ Template ] ===========
 # Template: Default sample padding content when inserting a code block
 TEMPLATE = """

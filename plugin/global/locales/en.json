@@ -1340,6 +1340,8 @@
     "$tooltip.DECK_EXPORT_SCALE": "Multiplier applied to the slide size when exporting.",
     "$label.ALLOW_REMOTE_FONTS": "Fetch Remote Fonts",
     "$tooltip.ALLOW_REMOTE_FONTS": "Off by default so exporting never waits on the network; text falls back to system fonts.",
+    "$label.FONT_DIR": "Extra Font Directory",
+    "$tooltip.FONT_DIR": "Directory of .ttf/.otf/.woff/.woff2 files to embed into the deck. Leave empty to use system fonts.",
     "$title.deckExport": "Export",
     "act.toggle_deck_mode": "Toggle Deck Mode",
     "act.export_pptx": "Export Deck as PPTX",

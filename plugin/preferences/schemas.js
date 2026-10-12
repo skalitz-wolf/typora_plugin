@@ -1391,6 +1391,7 @@ const schema_marp = () => [
     Integer("DECK_SLIDE_HEIGHT").Unit(UNITS.pixel).Min(1),
     Float("DECK_EXPORT_SCALE").Min(0.5).Max(4).Step(0.5).Tooltip("DECK_EXPORT_SCALE"),
     Switch("ALLOW_REMOTE_FONTS").Tooltip("ALLOW_REMOTE_FONTS"),
+    Text("FONT_DIR").Tooltip("FONT_DIR"),
   ),
   FRAG.Template(),
   FRAG.SettingHandler(),

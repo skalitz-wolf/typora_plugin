@@ -2,6 +2,7 @@ const MarpDeck = require("./deck.js")
 const { rasterizeDeck } = require("./rasterizer.js")
 const { buildPptx } = require("./pptx.js")
 const { buildPdf } = require("./pdf.js")
+const { buildFontFaceCss, isFontFile } = require("./fonts.js")
 
 const ACTIVE_CLASS = "plugin-marp-deck-active"
 const VIEW_MODES = ["source", "preview", "split"]
@@ -36,6 +37,7 @@ class MarpDeckView {
     this.deck = new MarpDeck({
       allowRemoteFonts: () => Boolean(this.plugin.config.ALLOW_REMOTE_FONTS),
       resolveImage: this._resolveImage,
+      loadFonts: this._loadExtraFonts,
     })
   }
 
@@ -484,6 +486,33 @@ class MarpDeckView {
   }
 
   // ---------- images ----------
+
+  /**
+   * Extra fonts, when the user pointed the plugin at a font directory. Read once and
+   * cached, because a deck renders on every keystroke pause.
+   */
+  _loadExtraFonts = async () => {
+    if (this._fontsCss !== undefined) return this._fontsCss
+    const dir = this.plugin.config.FONT_DIR
+    this._fontsCss = ""
+    if (!dir) return this._fontsCss
+    try {
+      const FsExtra = this.utils.Package.FsExtra
+      if (!await this.utils.existPath(dir)) return this._fontsCss
+      const entries = await FsExtra.readdir(dir)
+      const fonts = []
+      for (const name of entries) {
+        if (!isFontFile(name)) continue
+        const data = await FsExtra.readFile(this.utils.Package.Path.join(dir, name))
+        fonts.push({ path: name, data })
+      }
+      // Prepend the families to the slide's own font stack so they beat the theme's.
+      this._fontsCss = buildFontFaceCss(fonts, { prependTo: "section" })
+    } catch (error) {
+      console.error("[marp] could not read the font directory:", error)
+    }
+    return this._fontsCss
+  }
 
   /**
    * Resolves a local image to a data URI. Rasterization happens from a `data:` URL svg,

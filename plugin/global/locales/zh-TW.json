@@ -1340,6 +1340,8 @@
     "$tooltip.DECK_EXPORT_SCALE": "匯出時對投影片尺寸的放大倍數。",
     "$label.ALLOW_REMOTE_FONTS": "載入遠端字型",
     "$tooltip.ALLOW_REMOTE_FONTS": "預設關閉，避免匯出時等待網路；關閉時文字回退到系統字型。",
+    "$label.FONT_DIR": "額外字型目錄",
+    "$tooltip.FONT_DIR": "用於嵌入簡報的 .ttf/.otf/.woff/.woff2 字型目錄。留空則使用系統字型。",
     "$title.deckExport": "匯出",
     "act.toggle_deck_mode": "切換簡報模式",
     "act.export_pptx": "匯出為 PPTX",
