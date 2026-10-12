@@ -426,7 +426,7 @@ describe("d2 file view - zoom and pan", () => {
     // Zooming at (100,100) from the origin keeps that point fixed: t' = p - (p - t) * ratio
     assert.equal(view.transform.translateX, -100)
     assert.equal(view.transform.translateY, -100)
-    assert.match(view.entities.content.style.transform, /translate3d\(-100px, -100px, 0\) scale\(2\)/)
+    assert.equal(view.entities.content.style.transform, "translate(-100px, -100px) scale(2)")
   })
 
   it("clamps zoom to the configured bounds", () => {
@@ -481,5 +481,101 @@ describe("d2 file view - zoom and pan", () => {
     view.entities.content.querySelector = () => ({ getAttribute: a => (a === "width" ? "100" : "80"), clientWidth: 100, clientHeight: 80 })
     view._fitToPane()
     assert.equal(view.transform.scale, 1)
+  })
+
+  it("uses a plain 2D transform so the SVG stays vector and does not blur when zoomed", () => {
+    // A composited layer (translate3d / will-change) is rasterized once at 1x and then
+    // scaled as a bitmap, which is what made zoomed text blurry.
+    const view = buildView()
+    view._applyTransform({ scale: 4, translateX: -100, translateY: -200 })
+    const transform = view.entities.content.style.transform
+    assert.equal(transform, "translate(-100px, -200px) scale(4)")
+    assert.ok(!/3d/.test(transform))
+  })
+})
+
+describe("d2 file view - alt text selection", () => {
+  const D2FileView = require("../../plugin/d2/file-view.js")
+
+  const buildView = () => {
+    const clipboard = []
+    const classes = new Set()
+    const view = new D2FileView({
+      config: { ...CONFIG, ENABLE_FILE_VIEW: true, FILE_VIEW_DEFAULT_MODE: "split", FILE_VIEW_AUTO_PREVIEW: true, FILE_VIEW_DELAY: 300, FILE_VIEW_SAVE_DELAY: 500, ENABLE_PAN: true },
+      utils: buildUtils(),
+      i18n: { t: k => k },
+      pluginName: "D2",
+    })
+    view.entities = {
+      content: { style: {} },
+      previewPane: {
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+        classList: { add: c => classes.add(c), remove: c => classes.delete(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) },
+        setPointerCapture() {},
+        releasePointerCapture() {},
+      },
+    }
+    view._classes = classes
+    view._copyToClipboard = text => clipboard.push(text)
+    view._clipboard = clipboard
+    global.File = { editor: { UserOp: { setClipboard: (...args) => clipboard.push(args[2]) } } }
+    return view
+  }
+
+  const pointer = (over = {}) => ({ button: 0, pointerId: 1, clientX: 100, clientY: 100, preventDefault() {}, altKey: false, ...over })
+
+  it("pans without Alt and does not enter selection mode", () => {
+    const view = buildView()
+    view._onPointerDown(pointer())
+    assert.ok(view.pan, "should start a pan")
+    assert.ok(!view.selectStart)
+    assert.ok(view._classes.has("is-panning"))
+  })
+
+  it("enters selection mode when Alt is held, without starting a pan", () => {
+    const view = buildView()
+    let prevented = false
+    view._onPointerDown(pointer({ altKey: true, preventDefault: () => { prevented = true } }))
+    assert.ok(view.selectStart, "should record a selection start")
+    assert.equal(view.pan, null, "must not pan in selection mode")
+    assert.equal(prevented, false, "must not preventDefault, or text selection is blocked")
+  })
+
+  it("toggles the selecting cursor class with the Alt key", () => {
+    const view = buildView()
+    view._onModifierChange({ key: "Alt", altKey: true })
+    assert.ok(view._classes.has("is-selecting"))
+    view._onModifierChange({ key: "Alt", altKey: false })
+    assert.ok(!view._classes.has("is-selecting"))
+  })
+
+  it("ignores non-Alt modifier keys", () => {
+    const view = buildView()
+    view._onModifierChange({ key: "Control", altKey: true })
+    assert.ok(!view._classes.has("is-selecting"))
+  })
+
+  it("copies the clicked <text> line on an Alt click", () => {
+    const view = buildView()
+    view._onPointerDown(pointer({ altKey: true }))
+    const target = { closest: sel => (sel === "text" ? { textContent: "  你好世界  " } : null) }
+    view._onPointerUp(pointer({ altKey: true, target }))
+    assert.deepEqual(view._clipboard, ["你好世界"])
+  })
+
+  it("copies the selected range when Alt-dragging", () => {
+    const view = buildView()
+    window.getSelection = () => ({ toString: () => " 选中的文字 " })
+    view._onPointerDown(pointer({ altKey: true, clientX: 10, clientY: 10 }))
+    view._onPointerUp(pointer({ altKey: true, clientX: 120, clientY: 90, target: {} }))
+    assert.deepEqual(view._clipboard, ["选中的文字"])
+    window.getSelection = undefined
+  })
+
+  it("does not copy when an Alt click misses every text node", () => {
+    const view = buildView()
+    view._onPointerDown(pointer({ altKey: true }))
+    view._onPointerUp(pointer({ altKey: true, target: { closest: () => null } }))
+    assert.deepEqual(view._clipboard, [])
   })
 })

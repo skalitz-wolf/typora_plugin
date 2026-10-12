@@ -37,6 +37,7 @@ class D2FileView {
     this.transform = { scale: 1, translateX: 0, translateY: 0 }
     this.fitPending = false
     this.pan = null
+    this.selectStart = null
   }
 
   get enabled() {
@@ -171,6 +172,14 @@ class D2FileView {
     #plugin-d2-file-view .d2fv-preview-pane.is-panning {
       cursor: grabbing;
     }
+    /* Alt turns the pane into a text-selection surface: drag pans by default, so without
+       this hint there is no way to tell the two modes apart. */
+    #plugin-d2-file-view .d2fv-preview-pane.is-selecting,
+    #plugin-d2-file-view .d2fv-preview-pane.is-selecting .${CONTENT_CLASS},
+    #plugin-d2-file-view .d2fv-preview-pane.is-selecting .${CONTENT_CLASS} * {
+      cursor: text;
+      user-select: text;
+    }
     #plugin-d2-file-view .d2fv-preview {
       position: absolute;
       top: 0;
@@ -188,7 +197,6 @@ class D2FileView {
       padding: 16px;
       box-sizing: border-box;
       transform-origin: 0 0;
-      will-change: transform;
     }
     /*
      * The renderer copies d2's natural width/height onto the outer <svg>, so it lays out
@@ -285,6 +293,18 @@ class D2FileView {
     pane.addEventListener("pointerup", this._onPointerUp)
     pane.addEventListener("pointercancel", this._onPointerUp)
     pane.addEventListener("dblclick", () => this._resetTransform())
+    // Alt held = selection mode. Tracked on the document because the modifier can be
+    // pressed or released while the pointer is anywhere, and Alt+drag would otherwise
+    // be swallowed by the OS/window before reaching the pane.
+    document.addEventListener("keydown", this._onModifierChange, true)
+    document.addEventListener("keyup", this._onModifierChange, true)
+  }
+
+  _onModifierChange = event => {
+    if (event.key !== "Alt") return
+    this.entities.previewPane.classList.toggle("is-selecting", event.altKey)
+    // Leaving selection mode mid-drag would otherwise strand the pan state.
+    if (!event.altKey && this.pan) this._endPan(event.pointerId)
   }
 
   /** Wheel zooms around the cursor, mirroring diagram_enhance's behaviour. */
@@ -298,6 +318,12 @@ class D2FileView {
 
   _onPointerDown = event => {
     if (event.button !== 0 || !this.options.enablePan) return
+    // Alt means "select text", so let the browser handle the gesture untouched: no
+    // preventDefault (that is what made text unselectable before) and no pan state.
+    if (event.altKey) {
+      this.selectStart = { clientX: event.clientX, clientY: event.clientY }
+      return
+    }
     event.preventDefault()
     this.pan = {
       pointerId: event.pointerId,
@@ -316,10 +342,47 @@ class D2FileView {
   }
 
   _onPointerUp = event => {
+    if (this.selectStart) {
+      const moved = Math.hypot(
+        event.clientX - (this.selectStart.clientX ?? event.clientX),
+        event.clientY - (this.selectStart.clientY ?? event.clientY),
+      ) > 4
+      this.selectStart = null
+      // A drag selects a range (the browser already did it, so copy that); a plain click
+      // targets a single <text> line.
+      if (moved) this._copySelection()
+      else this._copyTextAt(event.target)
+      return
+    }
     if (!this.pan || this.pan.pointerId !== event.pointerId) return
+    this._endPan(event.pointerId)
+  }
+
+  _endPan = pointerId => {
     this.pan = null
     this.entities.previewPane.classList.remove("is-panning")
-    this.entities.previewPane.releasePointerCapture?.(event.pointerId)
+    if (pointerId != null) this.entities.previewPane.releasePointerCapture?.(pointerId)
+  }
+
+  /** Copy the text of the clicked SVG <text> node (one visual line of the diagram). */
+  _copyTextAt = target => {
+    const node = target?.closest?.("text")
+    const text = node?.textContent?.trim()
+    if (text) this._copyToClipboard(text)
+  }
+
+  /** Copy whatever the browser has selected (an Alt+drag range). */
+  _copySelection = () => {
+    const text = window.getSelection?.()?.toString?.().trim()
+    if (text) this._copyToClipboard(text)
+  }
+
+  _copyToClipboard = text => {
+    // Typora's own clipboard helper keeps the rich-text/plain-text pairing consistent
+    // with the rest of the app; fall back to the DOM API outside Typora.
+    const setClipboard = File?.editor?.UserOp?.setClipboard
+    if (typeof setClipboard === "function") setClipboard(null, null, text, true)
+    else navigator.clipboard?.writeText?.(text)
   }
 
   _pointInPane = event => {
@@ -332,8 +395,11 @@ class D2FileView {
     const translateX = Number.isFinite(next.translateX) ? next.translateX : this.transform.translateX
     const translateY = Number.isFinite(next.translateY) ? next.translateY : this.transform.translateY
     this.transform = { scale, translateX, translateY }
+    // Deliberately a plain 2D transform with no will-change: a composited layer would be
+    // rasterized once at 1x and then scaled as a bitmap, so text turns blurry when zoomed.
+    // A 2D transform keeps the SVG as vectors and re-renders crisply at any scale.
     this.entities.content.style.transform =
-      `translate3d(${translateX}px, ${translateY}px, 0) scale(${scale})`
+      `translate(${translateX}px, ${translateY}px) scale(${scale})`
   }
 
   /** Shrink an oversized diagram to fit the pane; never enlarge past 100%. */
