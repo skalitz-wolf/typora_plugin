@@ -209,7 +209,10 @@ describe("d2 file view - source handling", () => {
 
   const buildFileView = (config = {}) => {
     const plugin = {
-      config: { ...CONFIG, ENABLE_FILE_VIEW: true, FILE_VIEW_DEFAULT_MODE: "split", FILE_VIEW_AUTO_PREVIEW: true, FILE_VIEW_DELAY: 300, ...config },
+      config: {
+        ...CONFIG, ENABLE_FILE_VIEW: true, FILE_VIEW_DEFAULT_MODE: "split",
+        FILE_VIEW_AUTO_PREVIEW: true, FILE_VIEW_DELAY: 300, FILE_VIEW_SAVE_DELAY: 500, ...config,
+      },
       utils: buildUtils(),
       i18n: { t: key => key },
       pluginName: "D2",
@@ -264,5 +267,219 @@ describe("d2 file view - source handling", () => {
     assert.equal(textarea.value, "a -> b")
     assert.equal(view.editor, undefined)
     window.CodeMirror = undefined
+  })
+})
+
+describe("d2 file view - line endings", () => {
+  const D2FileView = require("../../plugin/d2/file-view.js")
+
+  const buildView = () => new D2FileView({
+    config: { ...CONFIG, ENABLE_FILE_VIEW: true, FILE_VIEW_DEFAULT_MODE: "split", FILE_VIEW_AUTO_PREVIEW: true, FILE_VIEW_DELAY: 300, FILE_VIEW_SAVE_DELAY: 500 },
+    utils: buildUtils(),
+    i18n: { t: k => k },
+    pluginName: "D2",
+  })
+
+  const load = async (raw) => {
+    const view = buildView()
+    view.entities = { textarea: { value: "" }, content: { replaceChildren() {} } }
+    view.activeFile = "C:\\a\\b.d2"
+    view.lineEnding = raw.includes("\r\n") ? "\r\n" : "\n"
+    view.savedSource = view._toEditorText(raw)
+    view._setEditorValue(view.savedSource)
+    return view
+  }
+
+  it("stores CRLF files as LF in the textarea without reporting a change", async () => {
+    // A textarea normalizes CRLF to LF; comparing raw disk text against it would make
+    // every CRLF file look modified the moment it is opened.
+    const view = await load("a -> b\r\nc -> d\r\n")
+    assert.equal(view.entities.textarea.value, "a -> b\nc -> d\n")
+    assert.equal(view._isDirty(), false)
+  })
+
+  it("restores CRLF when writing back", async () => {
+    const view = await load("a -> b\r\nc -> d\r\n")
+    assert.equal(view._toFileText(view.entities.textarea.value), "a -> b\r\nc -> d\r\n")
+  })
+
+  it("leaves LF files alone", async () => {
+    const view = await load("a -> b\nc -> d\n")
+    assert.equal(view.entities.textarea.value, "a -> b\nc -> d\n")
+    assert.equal(view._isDirty(), false)
+    assert.equal(view._toFileText(view.entities.textarea.value), "a -> b\nc -> d\n")
+  })
+})
+
+describe("d2 file view - autosave", () => {
+  const D2FileView = require("../../plugin/d2/file-view.js")
+
+  const buildView = () => {
+    const written = []
+    const view = new D2FileView({
+      config: { ...CONFIG, ENABLE_FILE_VIEW: true, FILE_VIEW_DEFAULT_MODE: "split", FILE_VIEW_AUTO_PREVIEW: true, FILE_VIEW_DELAY: 300, FILE_VIEW_SAVE_DELAY: 500 },
+      utils: {
+        ...buildUtils(),
+        Package: {
+          Path: path,
+          FsExtra: {
+            writeFile: (p, content) => { written.push({ p, content }); return Promise.resolve() },
+            stat: () => Promise.resolve({ mtimeMs: 1, size: 1 }),
+          },
+        },
+        notification: { show() {} },
+      },
+      i18n: { t: k => k },
+      pluginName: "D2",
+    })
+    view.entities = {
+      textarea: { value: "a -> b" },
+      save: { classList: { toggle() {} }, setAttribute() {} },
+    }
+    view.activeFile = "C:\\a\\b.d2"
+    view.lineEnding = "\n"
+    view.savedSource = "a -> b"
+    return { view, written }
+  }
+
+  it("does not write when nothing changed", async () => {
+    const { view, written } = buildView()
+    assert.equal(await view.save(), true)
+    assert.equal(written.length, 0)
+  })
+
+  it("writes only the changed text", async () => {
+    const { view, written } = buildView()
+    view.entities.textarea.value = "a -> c"
+    assert.equal(await view.save(), true)
+    assert.deepEqual(written, [{ p: "C:\\a\\b.d2", content: "a -> c" }])
+    assert.equal(view._isDirty(), false)
+  })
+
+  it("writes with CRLF when the file used CRLF", async () => {
+    const { view, written } = buildView()
+    view.lineEnding = "\r\n"
+    view.savedSource = "a -> b"
+    view.entities.textarea.value = "a -> b\nc -> d"
+    await view.save()
+    assert.equal(written[0].content, "a -> b\r\nc -> d")
+  })
+
+  it("reports a failed write instead of throwing", async () => {
+    const { view } = buildView()
+    const errors = []
+    view.utils.notification = { show: (m, t) => errors.push([m, t]) }
+    view.utils.Package.FsExtra.writeFile = () => Promise.reject(new Error("disk full"))
+    view.entities.textarea.value = "changed"
+    assert.equal(await view.save(), false)
+    assert.equal(errors.length, 1)
+    assert.equal(errors[0][1], "error")
+  })
+
+  it("has no unsaved-changes prompt left anywhere", () => {
+    const { view } = buildView()
+    assert.equal(view._confirmDiscard, undefined)
+    assert.equal(view._confirmExternalOverwrite, undefined)
+    assert.equal(view._installOpenGuard, undefined)
+  })
+})
+
+describe("d2 file view - zoom and pan", () => {
+  const D2FileView = require("../../plugin/d2/file-view.js")
+  const core = require("../../plugin/diagram_enhance/core")
+
+  const buildView = () => {
+    const view = new D2FileView({
+      config: {
+        ...CONFIG, ENABLE_FILE_VIEW: true, FILE_VIEW_DEFAULT_MODE: "split",
+        FILE_VIEW_AUTO_PREVIEW: true, FILE_VIEW_DELAY: 300, FILE_VIEW_SAVE_DELAY: 500,
+        ZOOM_STEP: 0.1, MIN_SCALE: 0.1, MAX_SCALE: 5.0, ENABLE_PAN: true,
+      },
+      utils: buildUtils(),
+      i18n: { t: k => k },
+      pluginName: "D2",
+    })
+    const content = { style: {}, querySelector: () => null }
+    const pane = {
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+      classList: { add() {}, remove() {} },
+      setPointerCapture() {},
+      releasePointerCapture() {},
+    }
+    view.entities = { content, previewPane: pane }
+    return view
+  }
+
+  it("derives its zoom options from the shared core", () => {
+    const view = buildView()
+    assert.deepEqual(
+      { min: view.options.minScale, max: view.options.maxScale, step: view.options.zoomStep, pan: view.options.enablePan },
+      { min: 0.1, max: 5, step: 0.1, pan: true },
+    )
+  })
+
+  it("applies zoom through the same maths diagram_enhance uses", () => {
+    const view = buildView()
+    const point = { x: 100, y: 100 }
+    view._applyTransform(core.zoomAtPoint(view.transform, 2, point, view.options))
+    assert.equal(view.transform.scale, 2)
+    // Zooming at (100,100) from the origin keeps that point fixed: t' = p - (p - t) * ratio
+    assert.equal(view.transform.translateX, -100)
+    assert.equal(view.transform.translateY, -100)
+    assert.match(view.entities.content.style.transform, /translate3d\(-100px, -100px, 0\) scale\(2\)/)
+  })
+
+  it("clamps zoom to the configured bounds", () => {
+    const view = buildView()
+    view._applyTransform(core.zoomAtPoint(view.transform, 999, { x: 0, y: 0 }, view.options))
+    assert.equal(view.transform.scale, 5)
+    view._applyTransform(core.zoomAtPoint(view.transform, 0.0001, { x: 0, y: 0 }, view.options))
+    assert.equal(view.transform.scale, 0.1)
+  })
+
+  it("pans by the pointer delta from the drag origin", () => {
+    const view = buildView()
+    view._applyTransform({ scale: 1, translateX: 10, translateY: 20 })
+    view.pan = { pointerId: 1, startTranslate: { x: 10, y: 20 }, startPointer: { x: 100, y: 100 } }
+    view._onPointerMove({ pointerId: 1, clientX: 150, clientY: 130, preventDefault() {} })
+    assert.equal(view.transform.translateX, 60)
+    assert.equal(view.transform.translateY, 50)
+  })
+
+  it("ignores pointer moves that do not belong to the active drag", () => {
+    const view = buildView()
+    view._applyTransform({ scale: 1, translateX: 10, translateY: 20 })
+    view.pan = { pointerId: 1, startTranslate: { x: 10, y: 20 }, startPointer: { x: 0, y: 0 } }
+    view._onPointerMove({ pointerId: 2, clientX: 999, clientY: 999, preventDefault() {} })
+    assert.equal(view.transform.translateX, 10)
+    assert.equal(view.transform.translateY, 20)
+  })
+
+  it("fits an oversized diagram into the pane without ever enlarging it", () => {
+    const view = buildView()
+    view.entities.content.querySelector = () => ({ getAttribute: a => (a === "width" ? "4000" : "2000"), clientWidth: 4000, clientHeight: 2000 })
+    view._fitToPane()
+    // pane 800x600 minus 32px padding -> limited by width: 768/4000 = 0.192
+    assert.equal(view.transform.scale, 0.192)
+  })
+
+  it("fits against the diagram's natural size, not a CSS-capped box", () => {
+    // A CSS max-width on the svg would cap its layout box first, and fitting would then
+    // shrink the already-shrunk box a second time. The svg must carry its natural size.
+    const view = buildView()
+    view.entities.content.querySelector = () => ({
+      getAttribute: a => (a === "width" ? "3793" : "1730"),
+      clientWidth: 568,   // what a CSS-capped box would report
+      clientHeight: 259,
+    })
+    view._fitToPane()
+    assert.equal(view.transform.scale, 0.202)
+  })
+
+  it("keeps a small diagram at 100% when fitting", () => {
+    const view = buildView()
+    view.entities.content.querySelector = () => ({ getAttribute: a => (a === "width" ? "100" : "80"), clientWidth: 100, clientHeight: 80 })
+    view._fitToPane()
+    assert.equal(view.transform.scale, 1)
   })
 })

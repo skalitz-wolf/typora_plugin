@@ -3473,6 +3473,18 @@ FILE_VIEW_AUTO_PREVIEW = true
 # Preview refresh delay (ms)
 FILE_VIEW_DELAY = 300
 
+# Autosave delay (ms). Edits are written to disk this long after typing stops, so the
+# file is never left in an unsaved state and switching files never needs a prompt.
+FILE_VIEW_SAVE_DELAY = 500
+
+# =========== [ Preview Zoom & Pan ] ===========
+# These mirror the option names used by the diagram_enhance plugin, and are read through
+# its core.normalizeOptions(), so both surfaces stay in step.
+ZOOM_STEP = 0.1
+MIN_SCALE = 0.1
+MAX_SCALE = 5.0
+ENABLE_PAN = true
+
 # =========== [ Default Rendering Options ] ===========
 # Every option below can be overridden per fence via the BlockCodeConfig block.
 # Theme ID (see `d2 themes`), layout engine, and hand-drawn sketch style

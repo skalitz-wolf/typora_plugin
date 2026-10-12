@@ -1951,17 +1951,19 @@
     "fileView.split": "Split",
     "fileView.saved": "Saved",
     "fileView.reloaded": "Reloaded",
-    "fileView.externalChanged": "The file changed on disk. Overwrite it with the editor contents?",
-    "fileView.overwrite": "Overwrite",
-    "fileView.unsavedChanges": "This file has unsaved changes. Discard them?",
-    "fileView.discard": "Discard",
-    "fileView.cancel": "Cancel",
     "$label.ENABLE_FILE_VIEW": "Open .d2 Files in Typora",
     "$label.FILE_VIEW_DEFAULT_MODE": "Default View",
     "$label.FILE_VIEW_AUTO_PREVIEW": "Refresh Preview While Editing",
     "$label.FILE_VIEW_DELAY": "Preview Refresh Delay",
     "$option.FILE_VIEW_DEFAULT_MODE.source": "Source",
     "$option.FILE_VIEW_DEFAULT_MODE.preview": "Preview",
-    "$option.FILE_VIEW_DEFAULT_MODE.split": "Split"
+    "$option.FILE_VIEW_DEFAULT_MODE.split": "Split",
+    "fileView.saveFailed": "Save failed",
+    "$label.FILE_VIEW_SAVE_DELAY": "Autosave Delay",
+    "$title.previewZoom": "Preview Zoom & Pan",
+    "$label.ZOOM_STEP": "Zoom Step",
+    "$label.MIN_SCALE": "Minimum Scale",
+    "$label.MAX_SCALE": "Maximum Scale",
+    "$label.ENABLE_PAN": "Drag to Pan"
   }
 }

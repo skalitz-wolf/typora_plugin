@@ -1951,17 +1951,19 @@
     "fileView.split": "分栏",
     "fileView.saved": "已保存",
     "fileView.reloaded": "已重新加载",
-    "fileView.externalChanged": "文件已在磁盘上被修改。是否用编辑区内容覆盖？",
-    "fileView.overwrite": "覆盖",
-    "fileView.unsavedChanges": "该文件有未保存的修改，是否丢弃？",
-    "fileView.discard": "丢弃",
-    "fileView.cancel": "取消",
     "$label.ENABLE_FILE_VIEW": "在 Typora 中打开 .d2 文件",
     "$label.FILE_VIEW_DEFAULT_MODE": "默认视图",
     "$label.FILE_VIEW_AUTO_PREVIEW": "编辑时刷新预览",
     "$label.FILE_VIEW_DELAY": "预览刷新延迟",
     "$option.FILE_VIEW_DEFAULT_MODE.source": "源码",
     "$option.FILE_VIEW_DEFAULT_MODE.preview": "预览",
-    "$option.FILE_VIEW_DEFAULT_MODE.split": "分栏"
+    "$option.FILE_VIEW_DEFAULT_MODE.split": "分栏",
+    "fileView.saveFailed": "保存失败",
+    "$label.FILE_VIEW_SAVE_DELAY": "自动保存延迟",
+    "$title.previewZoom": "预览缩放与拖动",
+    "$label.ZOOM_STEP": "缩放步长",
+    "$label.MIN_SCALE": "最小缩放",
+    "$label.MAX_SCALE": "最大缩放",
+    "$label.ENABLE_PAN": "拖动平移"
   }
 }

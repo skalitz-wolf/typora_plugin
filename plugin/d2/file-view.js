@@ -1,7 +1,13 @@
 const D2Renderer = require("./renderer.js")
+// Reuse the upstream zoom/pan maths instead of reimplementing it, so the .d2 file view
+// and diagram_enhance's code-block surface behave identically. Coupling to core.js
+// (a stable pure-function module) is deliberate: if upstream improves it, we inherit it.
+const { clamp, normalizeOptions, panFromStart, roundScale, zoomAtPoint } = require("../diagram_enhance/core")
 
 const EXT = ".d2"
 const ACTIVE_CLASS = "plugin-d2-file-active"
+const CONTENT_CLASS = "d2fv-content"
+const CRLF = "\r\n"
 
 /**
  * Lets Typora open standalone .d2 files: registers the extension, then takes over the
@@ -25,7 +31,12 @@ class D2FileView {
     this.activationToken = 0
     this.renderToken = 0
     this.renderTimer = null
-    this.bypassOpenGuard = false
+    this.saveTimer = null
+    this.lineEnding = "\n"
+    this.options = normalizeOptions(plugin.config)
+    this.transform = { scale: 1, translateX: 0, translateY: 0 }
+    this.fitPending = false
+    this.pan = null
   }
 
   get enabled() {
@@ -152,24 +163,41 @@ class D2FileView {
      */
     #plugin-d2-file-view .d2fv-preview-pane {
       display: block;
-      overflow: auto;
+      overflow: hidden;
+      position: relative;
       background: #fff;
+      cursor: grab;
+    }
+    #plugin-d2-file-view .d2fv-preview-pane.is-panning {
+      cursor: grabbing;
     }
     #plugin-d2-file-view .d2fv-preview {
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      transform-origin: 0 0;
+    }
+    /* The transformable layer; scale/translate are applied here, not on the pane. */
+    #plugin-d2-file-view .${CONTENT_CLASS} {
+      position: absolute;
+      top: 0;
+      left: 0;
       padding: 16px;
       box-sizing: border-box;
+      transform-origin: 0 0;
+      will-change: transform;
     }
     /*
-     * d2 wraps its output in an outer <svg> that carries only a viewBox, so the SVG
-     * spec defaults its width to 100% and a small diagram would stretch to fill the
-     * pane. The renderer copies the natural width/height from the inner <svg> onto the
-     * outer element, so these rules cap oversized diagrams without scaling small ones up.
+     * The renderer copies d2's natural width/height onto the outer <svg>, so it lays out
+     * at its true size. Sizing is then entirely the transform's job (_fitToPane shrinks
+     * oversized diagrams, wheel zoom scales): a CSS max-width here would silently cap the
+     * element first, and _fitToPane would then shrink the already-capped box a second time.
      */
-    #plugin-d2-file-view .d2fv-preview > svg {
+    #plugin-d2-file-view .${CONTENT_CLASS} > svg {
       display: block;
-      max-width: 100%;
-      height: auto;
       margin: 0 auto;
     }
     #plugin-d2-file-view .d2fv-error {
@@ -200,7 +228,7 @@ class D2FileView {
           <textarea class="d2fv-source" spellcheck="false" aria-label="${this.plugin.i18n.t("fileView.source")}"></textarea>
         </div>
         <div class="d2fv-pane d2fv-preview-pane">
-          <div class="d2fv-preview"></div>
+          <div class="d2fv-preview"><div class="${CONTENT_CLASS}"></div></div>
         </div>
       </div>
     </div>
@@ -215,6 +243,8 @@ class D2FileView {
       sourcePane: root.querySelector(".d2fv-source-pane"),
       textarea: root.querySelector(".d2fv-source"),
       preview: root.querySelector(".d2fv-preview"),
+      previewPane: root.querySelector(".d2fv-preview-pane"),
+      content: root.querySelector(`.${CONTENT_CLASS}`),
       save: root.querySelector('[data-action="save"]'),
       reload: root.querySelector('[data-action="reload"]'),
       external: root.querySelector('[data-action="external"]'),
@@ -226,7 +256,6 @@ class D2FileView {
     if (!this.enabled) return
     this._registerFileTypes()
     this._installReadMask()
-    this._installOpenGuard()
     this._installSaveRedirect()
 
     this.entities.save.addEventListener("click", () => {
@@ -240,8 +269,94 @@ class D2FileView {
     this.entities.textarea.addEventListener("input", () => this._onInput())
     this.entities.textarea.addEventListener("keydown", event => this._onKeydown(event))
 
+    this._bindPreviewInteraction()
+
     this.utils.eventHub.on(this.utils.eventHub.eventType.fileContentLoaded, this._onFileContentLoaded)
     this.utils.eventHub.on(this.utils.eventHub.eventType.allPluginsHadInjected, () => this._registerFileTypes(true))
+  }
+
+  // ---------- preview zoom & pan ----------
+
+  _bindPreviewInteraction = () => {
+    const pane = this.entities.previewPane
+    pane.addEventListener("wheel", this._onWheel, { passive: false })
+    pane.addEventListener("pointerdown", this._onPointerDown)
+    pane.addEventListener("pointermove", this._onPointerMove)
+    pane.addEventListener("pointerup", this._onPointerUp)
+    pane.addEventListener("pointercancel", this._onPointerUp)
+    pane.addEventListener("dblclick", () => this._resetTransform())
+  }
+
+  /** Wheel zooms around the cursor, mirroring diagram_enhance's behaviour. */
+  _onWheel = event => {
+    if (event.deltaY === 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const factor = event.deltaY > 0 ? (1 - this.options.zoomStep) : (1 + this.options.zoomStep)
+    this._applyTransform(zoomAtPoint(this.transform, this.transform.scale * factor, this._pointInPane(event), this.options))
+  }
+
+  _onPointerDown = event => {
+    if (event.button !== 0 || !this.options.enablePan) return
+    event.preventDefault()
+    this.pan = {
+      pointerId: event.pointerId,
+      startTranslate: { x: this.transform.translateX, y: this.transform.translateY },
+      startPointer: this._pointInPane(event),
+    }
+    this.entities.previewPane.classList.add("is-panning")
+    this.entities.previewPane.setPointerCapture?.(event.pointerId)
+  }
+
+  _onPointerMove = event => {
+    if (!this.pan || this.pan.pointerId !== event.pointerId) return
+    event.preventDefault()
+    const next = panFromStart(this.pan.startTranslate, this.pan.startPointer, this._pointInPane(event))
+    this._applyTransform({ scale: this.transform.scale, ...next })
+  }
+
+  _onPointerUp = event => {
+    if (!this.pan || this.pan.pointerId !== event.pointerId) return
+    this.pan = null
+    this.entities.previewPane.classList.remove("is-panning")
+    this.entities.previewPane.releasePointerCapture?.(event.pointerId)
+  }
+
+  _pointInPane = event => {
+    const rect = this.entities.previewPane.getBoundingClientRect()
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+  }
+
+  _applyTransform = next => {
+    const scale = Number.isFinite(next.scale) ? next.scale : this.transform.scale
+    const translateX = Number.isFinite(next.translateX) ? next.translateX : this.transform.translateX
+    const translateY = Number.isFinite(next.translateY) ? next.translateY : this.transform.translateY
+    this.transform = { scale, translateX, translateY }
+    this.entities.content.style.transform =
+      `translate3d(${translateX}px, ${translateY}px, 0) scale(${scale})`
+  }
+
+  /** Shrink an oversized diagram to fit the pane; never enlarge past 100%. */
+  _fitToPane = () => {
+    const svg = this.entities.content.querySelector(":scope > svg")
+    const pane = this.entities.previewPane
+    if (!svg || !pane) return
+    const naturalWidth = parseFloat(svg.getAttribute("width")) || svg.clientWidth
+    const naturalHeight = parseFloat(svg.getAttribute("height")) || svg.clientHeight
+    const rect = pane.getBoundingClientRect()
+    const padding = 32  // matches the content layer's 16px padding on each side
+    if (!naturalWidth || !naturalHeight || rect.width <= padding || rect.height <= padding) return
+    const scale = roundScale(clamp(
+      Math.min((rect.width - padding) / naturalWidth, (rect.height - padding) / naturalHeight),
+      this.options.minScale,
+      1,
+    ))
+    this._applyTransform({ scale, translateX: 0, translateY: 0 })
+  }
+
+  _resetTransform = () => {
+    this._applyTransform({ scale: 1, translateX: 0, translateY: 0 })
+    this._fitToPane()
   }
 
   postprocess = () => {
@@ -276,6 +391,9 @@ class D2FileView {
   _activate = async filePath => {
     const token = ++this.activationToken
     try {
+      // Make sure the previous file's last keystrokes reached disk before we drop them.
+      await this._flushSave()
+      if (token !== this.activationToken) return
       await this._loadSource(filePath)
       if (token !== this.activationToken) return
       // Stop Typora from trying to parse the file as Markdown.
@@ -293,38 +411,62 @@ class D2FileView {
     }
   }
 
+  /**
+   * Flush any pending autosave before the editor is torn down. Awaited by callers that
+   * need the write to land first (switching files, closing); fire-and-forget elsewhere.
+   */
+  _flushSave = async () => {
+    if (this.saveTimer) await this.save()
+  }
+
   _deactivate = () => {
     this.activationToken++
     this.renderToken++
     clearTimeout(this.renderTimer)
-    this.activeFile = ""
-    this.savedSource = ""
-    this.currentStat = null
+    // Autosave has usually already written; flush synchronously here so a switch or
+    // close never loses the last keystrokes.
+    const pending = this._flushSave()
     // This also runs from _activate's catch block, so it must never throw: a failure
     // here would replace the original error with a misleading secondary one.
     try {
       this.entities.content.classList.remove(ACTIVE_CLASS)
       this.entities.root.classList.add("plugin-common-hidden")
+      this.activeFile = ""
+      this.savedSource = ""
+      this.currentStat = null
       this._setEditorValue("")
-      this.entities.preview.replaceChildren()
+      this.entities.content.replaceChildren()
+      this._resetTransform()
       this._syncUI()
     } catch (error) {
       console.error("[d2] failed to reset the file view:", error)
     }
+    return pending
   }
 
   _loadSource = async filePath => {
-    const source = this._sourceCache?.get(this._normalize(filePath))
+    const raw = this._sourceCache?.get(this._normalize(filePath))
       ?? await this.utils.Package.FsExtra.readFile(filePath, "utf8")
     this._sourceCache?.delete(this._normalize(filePath))
     const stat = await this.utils.Package.FsExtra.stat(filePath)
     this.activeFile = this._normalize(filePath)
-    this.savedSource = source
+    // A textarea normalizes CRLF to LF, so remember the file's original line ending and
+    // restore it on write. Without this, every CRLF file would report as modified the
+    // moment it is opened (and saving would rewrite it with LF).
+    this.lineEnding = raw.includes(CRLF) ? CRLF : "\n"
+    this.savedSource = this._toEditorText(raw)
     this.currentStat = { mtimeMs: stat.mtimeMs, size: stat.size }
-    this._setEditorValue(source)
+    this._setEditorValue(this.savedSource)
+    this._resetTransform()
     this.entities.path.textContent = this.activeFile
     this.entities.path.title = this.activeFile
   }
+
+  /** File text -> textarea text (LF only, since a textarea cannot hold CRLF). */
+  _toEditorText = raw => this.lineEnding === CRLF ? raw.replace(/\r\n/g, "\n") : raw
+
+  /** Textarea text -> file text, restoring the file's original line ending. */
+  _toFileText = editorText => this.lineEnding === CRLF ? editorText.replace(/\n/g, CRLF) : editorText
 
   // ---------- editing surface ----------
 
@@ -352,6 +494,7 @@ class D2FileView {
 
   _onInput = () => {
     this._syncUI()
+    this._scheduleSave()
     if (this.plugin.config.FILE_VIEW_AUTO_PREVIEW) this._scheduleRender()
   }
 
@@ -369,10 +512,11 @@ class D2FileView {
     try {
       const svg = await this.renderer.render(source, this._meta())
       if (token !== this.renderToken) return
-      this.entities.preview.innerHTML = svg
+      this.entities.content.innerHTML = svg
+      this._fitToPane()
     } catch (error) {
       if (token !== this.renderToken) return
-      this.entities.preview.replaceChildren(this._buildError(error.message))
+      this.entities.content.replaceChildren(this._buildError(error.message))
     }
   }
 
@@ -407,63 +551,44 @@ class D2FileView {
 
   _isDirty = () => Boolean(this.activeFile) && this._getEditorValue() !== this.savedSource
 
+  /**
+   * Autosave: writing happens shortly after typing stops, so the file on disk always
+   * matches the editor. That is what removes the "unsaved changes" prompt when switching
+   * files — there is no unsaved state to ask about.
+   */
+  _scheduleSave = () => {
+    clearTimeout(this.saveTimer)
+    this.saveTimer = setTimeout(() => this.save(), this.plugin.config.FILE_VIEW_SAVE_DELAY)
+  }
+
+  /** Write the current text to disk. Returns false only on a real write failure. */
   save = async () => {
     if (!this.activeFile) return false
+    clearTimeout(this.saveTimer)
+    const text = this._getEditorValue()
+    if (text === this.savedSource) return true
     try {
-      if (await this._hasExternalChange() && !await this._confirmExternalOverwrite()) return false
-      const source = this._getEditorValue()
-      await this.utils.Package.FsExtra.writeFile(this.activeFile, source, "utf8")
+      const payload = this._toFileText(text)
+      await this.utils.Package.FsExtra.writeFile(this.activeFile, payload, "utf8")
       const stat = await this.utils.Package.FsExtra.stat(this.activeFile)
-      this.savedSource = source
+      this.savedSource = text
       this.currentStat = { mtimeMs: stat.mtimeMs, size: stat.size }
       this._syncUI()
-      this._notify(this.plugin.i18n.t("fileView.saved"), "success")
       return true
     } catch (error) {
-      this._notify(error.message, "error")
+      console.error("[d2] failed to save:", error)
+      this._notify(`${this.plugin.i18n.t("fileView.saveFailed")}: ${error.message}`, "error")
       return false
     }
   }
 
   reload = async () => {
     if (!this.activeFile) return
-    if (this._isDirty() && !await this._confirmDiscard()) return
+    await this._flushSave()
     const filePath = this.activeFile
     await this._loadSource(filePath)
     this._scheduleRender()
     this._notify(this.plugin.i18n.t("fileView.reloaded"), "info")
-  }
-
-  _hasExternalChange = async () => {
-    if (!this.currentStat) return false
-    try {
-      const stat = await this.utils.Package.FsExtra.stat(this.activeFile)
-      return stat.mtimeMs !== this.currentStat.mtimeMs || stat.size !== this.currentStat.size
-    } catch {
-      return true
-    }
-  }
-
-  _confirmExternalOverwrite = async () => {
-    const { response } = await this.utils.showMessageBox({
-      type: "warning",
-      title: this.plugin.pluginName,
-      message: this.plugin.i18n.t("fileView.externalChanged"),
-      detail: this.activeFile,
-      buttons: [this.plugin.i18n.t("fileView.overwrite"), this.plugin.i18n.t("fileView.cancel")],
-    })
-    return response === 0
-  }
-
-  _confirmDiscard = async () => {
-    const { response } = await this.utils.showMessageBox({
-      type: "warning",
-      title: this.plugin.pluginName,
-      message: this.plugin.i18n.t("fileView.unsavedChanges"),
-      detail: this.activeFile,
-      buttons: [this.plugin.i18n.t("fileView.discard"), this.plugin.i18n.t("fileView.cancel")],
-    })
-    return response === 0
   }
 
   // ---------- guards ----------
@@ -487,28 +612,6 @@ class D2FileView {
       },
       { priority: -200 },
     ).catch(error => console.error("[d2] readContentFrom hook failed:", error))
-  }
-
-  /** Prompt before navigating away from unsaved changes. */
-  _installOpenGuard = () => {
-    this.utils.decorator.preventCallIf(
-      () => File?.editor?.library,
-      "openFile",
-      target => {
-        if (this.bypassOpenGuard || !this._isDirty() || this._samePath(target, this.activeFile)) return false
-        this._confirmDiscard().then(confirmed => {
-          if (!confirmed) return
-          this.bypassOpenGuard = true
-          try {
-            File.editor.library.openFile(target)
-          } finally {
-            this.bypassOpenGuard = false
-          }
-        })
-        return true
-      },
-      { priority: -200 },
-    ).catch(error => console.error("[d2] openFile hook failed:", error))
   }
 
   /** Ctrl+S inside Typora goes through saveUseNode; route it to our own save. */
