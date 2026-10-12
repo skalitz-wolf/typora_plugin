@@ -1,4 +1,5 @@
 const { createArchive } = require("./zip.js")
+const { normalizePages, normalizeSlideSize } = require("./slides.js")
 
 /**
  * Builds an Image-based PPTX: one presentation slide per rasterized page, each a single
@@ -26,47 +27,6 @@ const NS = {
 
 const XML_DECLARATION = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
 
-const escapeXml = value => String(value)
-  .replace(/&/g, "&amp;")
-  .replace(/</g, "&lt;")
-  .replace(/>/g, "&gt;")
-  .replace(/"/g, "&quot;")
-
-/** Detect an image type from its magic bytes, so callers need not supply a mime type. */
-const detectImageType = data => {
-  if (data.length >= 8 && data.readUInt32BE(0) === 0x89504e47) return { ext: "png", mime: "image/png" }
-  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return { ext: "jpeg", mime: "image/jpeg" }
-  if (data.length >= 12 && data.toString("ascii", 0, 4) === "RIFF" && data.toString("ascii", 8, 12) === "WEBP") {
-    return { ext: "webp", mime: "image/webp" }
-  }
-  if (data.length >= 6 && data.toString("ascii", 0, 3) === "GIF") return { ext: "gif", mime: "image/gif" }
-  return null
-}
-
-const normalizePages = pages => {
-  if (!Array.isArray(pages) || pages.length === 0) {
-    throw new Error("a presentation needs at least one page")
-  }
-  return pages.map((page, index) => {
-    const data = page?.data
-    if (!Buffer.isBuffer(data) || data.length === 0) {
-      throw new Error(`page ${index + 1} has no image data`)
-    }
-    const detected = detectImageType(data)
-    const type = detected || { ext: "png", mime: page.mime || "image/png" }
-    return { data, ext: type.ext, mime: type.mime }
-  })
-}
-
-const normalizeSlideSize = slideSize => {
-  const width = slideSize?.width
-  const height = slideSize?.height
-  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
-    throw new Error("slideSize needs positive width and height")
-  }
-  return { width, height }
-}
-
 const contentTypes = (pages, imageTypes) => {
   const defaults = [
     ["rels", "application/vnd.openxmlformats-package.relationships+xml"],
@@ -78,10 +38,18 @@ const contentTypes = (pages, imageTypes) => {
     ["/ppt/slideMasters/slideMaster1.xml", "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"],
     ["/ppt/slideLayouts/slideLayout1.xml", "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"],
     ["/ppt/theme/theme1.xml", "application/vnd.openxmlformats-officedocument.theme+xml"],
+    ["/ppt/notesMasters/notesMaster1.xml", "application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"],
     ...pages.map((_, index) => [
       `/ppt/slides/slide${index + 1}.xml`,
       "application/vnd.openxmlformats-officedocument.presentationml.slide+xml",
     ]),
+    ...pages
+      .map((_, index) => index)
+      .filter(index => pages[index].hasNotes)
+      .map(index => [
+        `/ppt/notesSlides/notesSlide${index + 1}.xml`,
+        "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml",
+      ]),
   ]
   return [
     XML_DECLARATION,
@@ -214,10 +182,75 @@ const slideXml = size => [
   "</p:sld>",
 ].join("")
 
-const slideRels = (index, ext) => [
+const slideRels = (index, ext, hasNotes) => [
   XML_DECLARATION,
   `<Relationships xmlns="${NS.packageRels}">`,
   `<Relationship Id="rId1" Type="${NS.relationships}/image" Target="../media/image${index + 1}.${ext}"/>`,
+  // The notes slide only becomes reachable through the slide's own relationship, so this
+  // link - not the notes part alone - is what makes the notes appear.
+  ...(hasNotes
+    ? [`<Relationship Id="rId2" Type="${NS.relationships}/notesSlide" Target="../notesSlides/notesSlide${index + 1}.xml"/>`]
+    : []),
+  "</Relationships>",
+].join("")
+
+const escapeXml = value => String(value)
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;")
+
+const notesMasterXml = () => [
+  XML_DECLARATION,
+  `<p:notesMaster xmlns:p="${NS.presentation}" xmlns:a="${NS.drawing}" xmlns:r="${NS.relationships}">`,
+  "<p:cSld><p:spTree>",
+  "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>",
+  "<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>",
+  "</p:spTree></p:cSld>",
+  "<p:clrMap bg1=\"lt1\" tx1=\"dk1\" bg2=\"lt2\" tx2=\"dk2\" accent1=\"accent1\" accent2=\"accent2\"",
+  " accent3=\"accent3\" accent4=\"accent4\" accent5=\"accent5\" accent6=\"accent6\" hlink=\"hlink\" folHlink=\"folHlink\"/>",
+  "</p:notesMaster>",
+].join("")
+
+const notesMasterRels = () => [
+  XML_DECLARATION,
+  `<Relationships xmlns="${NS.packageRels}">`,
+  `<Relationship Id="rId1" Type="${NS.relationships}/theme" Target="../theme/theme1.xml"/>`,
+  "</Relationships>",
+].join("")
+
+/**
+ * A speaker-notes slide: one explicit text shape carrying the text.
+ *
+ * It is deliberately not a placeholder. A placeholder inherits its text body from the
+ * notes master, and readers then treat the master's empty body as authoritative for the
+ * inherited properties, which loses the text. A plain shape with its own position, size
+ * and text body is unambiguous.
+ */
+const notesSlideXml = text => [
+  XML_DECLARATION,
+  `<p:notes xmlns:p="${NS.presentation}" xmlns:a="${NS.drawing}" xmlns:r="${NS.relationships}">`,
+  "<p:cSld><p:spTree>",
+  "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>",
+  "<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>",
+  "<p:sp>",
+  "<p:nvSpPr><p:cNvPr id=\"2\" name=\"Notes\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr>",
+  "<p:spPr><a:xfrm><a:off x=\"685800\" y=\"4343400\"/><a:ext cx=\"5486400\" cy=\"3657600\"/></a:xfrm>",
+  "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr>",
+  "<p:txBody><a:bodyPr wrap=\"square\"/><a:lstStyle/>",
+  `<a:p><a:r><a:rPr lang="en-US" dirty="0"/><a:t>${escapeXml(text)}</a:t></a:r></a:p>`,
+  "</p:txBody>",
+  "</p:sp>",
+  "</p:spTree></p:cSld>",
+  "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>",
+  "</p:notes>",
+].join("")
+
+const notesSlideRels = index => [
+  XML_DECLARATION,
+  `<Relationships xmlns="${NS.packageRels}">`,
+  `<Relationship Id="rId1" Type="${NS.relationships}/slide" Target="../slides/slide${index + 1}.xml"/>`,
+  `<Relationship Id="rId2" Type="${NS.relationships}/notesMaster" Target="../notesMasters/notesMaster1.xml"/>`,
   "</Relationships>",
 ].join("")
 
@@ -226,7 +259,10 @@ const slideRels = (index, ext) => [
  * @returns {Buffer} PPTX bytes
  */
 const buildPptx = ({ pages, slideSize, notes } = {}) => {
-  const normalized = normalizePages(pages)
+  const normalized = normalizePages(pages, "presentation").map((page, index) => {
+    const text = Array.isArray(notes) ? notes[index] : undefined
+    return { ...page, notes: text ? String(text) : "", hasNotes: Boolean(text) }
+  })
   const size = normalizeSlideSize(slideSize)
 
   const imageTypes = []
@@ -243,16 +279,22 @@ const buildPptx = ({ pages, slideSize, notes } = {}) => {
     { name: "ppt/slideMasters/_rels/slideMaster1.xml.rels", data: slideMasterRels() },
     { name: "ppt/slideLayouts/slideLayout1.xml", data: slideLayoutXml() },
     { name: "ppt/slideLayouts/_rels/slideLayout1.xml.rels", data: slideLayoutRels() },
+    { name: "ppt/notesMasters/notesMaster1.xml", data: notesMasterXml() },
+    { name: "ppt/notesMasters/_rels/notesMaster1.xml.rels", data: notesMasterRels() },
     { name: "ppt/theme/theme1.xml", data: themeXml() },
   ]
 
   normalized.forEach((page, index) => {
     entries.push({ name: `ppt/slides/slide${index + 1}.xml`, data: slideXml(size) })
-    entries.push({ name: `ppt/slides/_rels/slide${index + 1}.xml.rels`, data: slideRels(index, page.ext) })
+    entries.push({ name: `ppt/slides/_rels/slide${index + 1}.xml.rels`, data: slideRels(index, page.ext, page.hasNotes) })
     entries.push({ name: `ppt/media/image${index + 1}.${page.ext}`, data: page.data })
+    if (page.hasNotes) {
+      entries.push({ name: `ppt/notesSlides/notesSlide${index + 1}.xml`, data: notesSlideXml(page.notes) })
+      entries.push({ name: `ppt/notesSlides/_rels/notesSlide${index + 1}.xml.rels`, data: notesSlideRels(index) })
+    }
   })
 
   return createArchive(entries)
 }
 
-module.exports = { buildPptx, EMU_PER_PIXEL, detectImageType, escapeXml }
+module.exports = { buildPptx, EMU_PER_PIXEL }

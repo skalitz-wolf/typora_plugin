@@ -158,6 +158,61 @@ describe("pptx - input validation", () => {
   })
 })
 
+describe("pptx - speaker notes", () => {
+  it("attaches notes to the slide they belong to", () => {
+    const parts = entriesOf(buildPptx({
+      pages: [page(0), page(1)],
+      slideSize: SLIDE,
+      notes: ["first note", ""],
+    }))
+    assert.ok(parts.has("ppt/notesSlides/notesSlide1.xml"))
+    assert.ok(!parts.has("ppt/notesSlides/notesSlide2.xml"), "an empty note should not create a part")
+    assert.match(parts.get("ppt/notesSlides/notesSlide1.xml").toString(), /first note/)
+  })
+
+  it("wires a notes slide back to its own slide", () => {
+    const parts = entriesOf(buildPptx({ pages: [page(0)], slideSize: SLIDE, notes: ["x"] }))
+    assert.match(parts.get("ppt/notesSlides/_rels/notesSlide1.xml.rels").toString(), /\.\.\/slides\/slide1\.xml/)
+  })
+
+  it("links the slide to its notes slide, which is what makes the notes reachable", () => {
+    const parts = entriesOf(buildPptx({ pages: [page(0)], slideSize: SLIDE, notes: ["x"] }))
+    const rels = parts.get("ppt/slides/_rels/slide1.xml.rels").toString()
+    assert.match(rels, /notesSlide1\.xml/)
+    assert.match(rels, /\/notesSlide"/)
+  })
+
+  it("does not link a slide to notes that do not exist", () => {
+    const parts = entriesOf(buildPptx({ pages: [page(0)], slideSize: SLIDE }))
+    assert.ok(!/notesSlide/.test(parts.get("ppt/slides/_rels/slide1.xml.rels").toString()))
+  })
+
+  it("declares the content type for a notes slide", () => {
+    const parts = entriesOf(buildPptx({ pages: [page(0)], slideSize: SLIDE, notes: ["x"] }))
+    assert.match(parts.get("[Content_Types].xml").toString(), /notesSlide/)
+  })
+
+  it("omits every notes part when there are no notes at all", () => {
+    const names = [...entriesOf(buildPptx({ pages: [page(0)], slideSize: SLIDE })).keys()]
+    assert.deepEqual(names.filter(n => /notesSlide/.test(n)), [])
+  })
+
+  it("escapes markup in a note so the xml stays valid", () => {
+    const parts = entriesOf(buildPptx({ pages: [page(0)], slideSize: SLIDE, notes: ["<b> & \"x\""] }))
+    assert.match(parts.get("ppt/notesSlides/notesSlide1.xml").toString(), /&lt;b&gt; &amp; &quot;x&quot;/)
+  })
+
+  it("keeps the note text in a shape a reader can find, rather than an inherited placeholder", () => {
+    // A placeholder body inherits from the notes master, and readers treat the master's
+    // empty body as authoritative, losing the text. An explicit text shape avoids that.
+    const parts = entriesOf(buildPptx({ pages: [page(0)], slideSize: SLIDE, notes: ["hello"] }))
+    const notes = parts.get("ppt/notesSlides/notesSlide1.xml").toString()
+    assert.match(notes, /txBox="1"/)
+    assert.ok(!/<p:ph /.test(notes), "the note must not be a placeholder")
+    assert.match(notes, /<a:t>hello<\/a:t>/)
+  })
+})
+
 describe("pptx - determinism", () => {
   it("produces byte-identical output for identical input", () => {
     const build = () => buildPptx({ pages: [page(0), page(1)], slideSize: SLIDE })

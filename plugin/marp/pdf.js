@@ -1,4 +1,9 @@
 const zlib = require("zlib")
+const {
+  DEFAULT_SLIDE_SIZE,
+  normalizePages: sharedNormalizePages,
+  normalizeSlideSize,
+} = require("./slides.js")
 
 /**
  * Builds a PDF with one page per rasterized slide.
@@ -14,12 +19,8 @@ const zlib = require("zlib")
  * Everything here is pure: bytes in, bytes out, deterministic output.
  */
 
-const DEFAULT_SLIDE_SIZE = { width: 1280, height: 720 }
-
 // PDF user-space units are points: 72 per inch, and the rasterizer works at 96 dpi.
 const POINTS_PER_PIXEL = 72 / 96
-
-const escapeName = value => String(value).replace(/[^A-Za-z0-9]/g, "")
 
 /** Parses the chunks of a PNG just far enough to read IHDR and the concatenated IDAT. */
 const parsePng = data => {
@@ -154,35 +155,21 @@ const jpegSize = data => {
   return null
 }
 
-const normalizePages = pages => {
-  if (!Array.isArray(pages) || pages.length === 0) {
-    throw new Error("a pdf needs at least one page")
+/** Validation and type detection are shared with the PPTX writer; only the decoding differs. */
+const normalizePages = pages => sharedNormalizePages(pages, "pdf").map((page, index) => {
+  if (page.ext === "jpeg") {
+    const size = jpegSize(page.data)
+    if (!size) throw new Error(`page ${index + 1}: could not read the jpeg dimensions`)
+    return { kind: "jpeg", data: page.data, width: size.width, height: size.height }
   }
-  return pages.map((page, index) => {
-    const data = page?.data
-    if (!Buffer.isBuffer(data) || data.length === 0) {
-      throw new Error(`page ${index + 1} has no image data`)
-    }
-    if (isJpeg(data)) {
-      const size = jpegSize(data)
-      if (!size) throw new Error(`page ${index + 1}: could not read the jpeg dimensions`)
-      return { kind: "jpeg", data, width: size.width, height: size.height }
-    }
-    const rgb = decodePngToRgb(data)
-    if (!rgb) throw new Error(`page ${index + 1}: unsupported image format`)
-    const png = parsePng(data)
-    return { kind: "png", data, rgb, width: png.width, height: png.height }
-  })
-}
-
-const normalizeSlideSize = slideSize => {
-  const width = slideSize?.width ?? DEFAULT_SLIDE_SIZE.width
-  const height = slideSize?.height ?? DEFAULT_SLIDE_SIZE.height
-  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
-    throw new Error("slideSize needs positive width and height")
+  if (page.ext !== "png") {
+    throw new Error(`page ${index + 1}: unsupported image format`)
   }
-  return { width, height }
-}
+  const rgb = decodePngToRgb(page.data)
+  if (!rgb) throw new Error(`page ${index + 1}: unsupported image format`)
+  const png = parsePng(page.data)
+  return { kind: "png", data: page.data, rgb, width: png.width, height: png.height }
+})
 
 /**
  * @param {{pages: Array<{data: Buffer}>, slideSize?: {width: number, height: number}}} options
@@ -190,7 +177,8 @@ const normalizeSlideSize = slideSize => {
  */
 const buildPdf = ({ pages, slideSize } = {}) => {
   const normalized = normalizePages(pages)
-  const size = normalizeSlideSize(slideSize)
+  // Unlike PPTX, a PDF is happy with a sensible default when no geometry is supplied.
+  const size = normalizeSlideSize(slideSize, { fallback: true })
   const pageWidth = size.width * POINTS_PER_PIXEL
   const pageHeight = size.height * POINTS_PER_PIXEL
 
@@ -285,4 +273,4 @@ const buildPdf = ({ pages, slideSize } = {}) => {
   return Buffer.concat(chunks)
 }
 
-module.exports = { buildPdf, POINTS_PER_PIXEL, escapeName }
+module.exports = { buildPdf, POINTS_PER_PIXEL, DEFAULT_SLIDE_SIZE }

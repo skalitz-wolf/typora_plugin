@@ -168,7 +168,13 @@ class MarpDeck {
 
   _buildCss = async css => {
     let out = stripCharset(css)
-    if (!this.options.allowRemoteFonts) out = stripImports(out)
+    // `allowRemoteFonts` may be a predicate, so a deck reads the setting at render time
+    // rather than freezing it at construction. Treating the function itself as truthy
+    // would silently leave every remote `@import` in place.
+    const allow = typeof this.options.allowRemoteFonts === "function"
+      ? this.options.allowRemoteFonts()
+      : this.options.allowRemoteFonts
+    if (!allow) out = stripImports(out)
     out = removeScoping(out)
     // Extra fonts come after the theme so they can override its stack, but before the
     // scoping removal has any effect on them (they carry no marpit prefix).

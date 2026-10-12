@@ -98,6 +98,17 @@ describe("marp deck - raster-safe stylesheet", () => {
     assert.match(slide.svg, /@import/)
   })
 
+  it("honours a predicate for allowRemoteFonts, so the setting is read at render time", async () => {
+    // The deck view passes a function because the user can change the setting while the
+    // plugin is loaded. Treating the function itself as truthy would leave every remote
+    // @import in place and quietly contradict the offline-by-default promise.
+    const off = await render(DECK, { allowRemoteFonts: () => false })
+    assert.ok(!/@import/.test(off[0].svg), "a false predicate must strip @import")
+
+    const on = await render(DECK, { allowRemoteFonts: () => true })
+    assert.match(on[0].svg, /@import/)
+  })
+
   it("carries the theme rules that actually style slides", async () => {
     const [slide] = await render(DECK)
     assert.match(slide.svg, /<style>/)

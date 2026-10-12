@@ -19,6 +19,10 @@ Chrome 148），插件代码可直接用 `document.createElement("canvas")`；�
 - 按**路径**引用的图片在光栅化时不会加载（`data:` URL 形式的 SVG 解析不到同级文件），
   导出前必须把本地图片内联成 data URI。
 - `foreignObject` 内的 HTML 必须处于 XHTML 命名空间。
+- Marp 把每个 emoji 改写成指向 CDN 的 Twemoji `<img>`，离线时只会渲染成一个破图占位符。
+  导出前必须把它换回 alt 里的 emoji 字符，交给系统 emoji 字体渲染。
+- Marp 只在根 `<svg>` 上写 `viewBox`，不写宽高。SVG 规范会把这种元素解析为
+  `width:100%`，于是光栅化得到一张零尺寸位图——必须把 `viewBox` 的尺寸补到根元素上。
 
 因此产物是图片式的：文字不可选中、不可搜索。若将来需要可编辑 PPTX，那是另一条
 （PDF → LibreOffice Impress）路线，不在本决策范围内。

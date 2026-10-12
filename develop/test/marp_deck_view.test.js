@@ -87,7 +87,7 @@ describe("marp deck view - the per-file switch", () => {
 
   it("keys files by resolved path so the same file is recognised however it is spelled", () => {
     const { view } = buildView()
-    assert.equal(view._key("C:\\notes\\deck.md"), path.resolve("C:\\notes\\deck.md"))
+    assert.equal(view._storageKey("C:\\notes\\deck.md"), path.resolve("C:\\notes\\deck.md"))
   })
 
   it("does not treat another document as a deck", () => {

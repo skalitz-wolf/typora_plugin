@@ -3,6 +3,7 @@ const { rasterizeDeck } = require("./rasterizer.js")
 const { buildPptx } = require("./pptx.js")
 const { buildPdf } = require("./pdf.js")
 const { buildFontFaceCss, isFontFile } = require("./fonts.js")
+const { mimeForExtension } = require("./slides.js")
 
 const ACTIVE_CLASS = "plugin-marp-deck-active"
 const VIEW_MODES = ["source", "preview", "split"]
@@ -194,10 +195,14 @@ class MarpDeckView {
 
     this.entities.buttons.forEach(button => {
       button.addEventListener("click", () => {
+        // While an export is running the export controls become Cancel, so the user is
+        // never stuck waiting on a deck they did not mean to start.
+        if (this.exporting && button.dataset.action?.startsWith("export")) {
+          this.cancelExport()
+          return
+        }
         if (button.classList.contains("is-disabled")) return
-        const action = button.dataset.action
-        if (action === "export-pptx") this.exportDeck("pptx")
-        else if (action === "export-pdf") this.exportDeck("pdf")
+        this.exportDeck(this._formatForAction(button.dataset.action))
       })
     })
     this.entities.views.forEach(button => {
@@ -227,7 +232,7 @@ class MarpDeckView {
     return ["md", "markdown", "mmd", "mkd", "mdwn", "mdown", "mdx", "rmd", "qmd"].includes(ext)
   }
 
-  isEnabled = filePath => this.isDeckFile(filePath) && this.enabledFiles.has(this._key(filePath))
+  isEnabled = filePath => this.isDeckFile(filePath) && this.enabledFiles.has(this._storageKey(filePath))
 
   /** Toggles Deck mode for the current document. The switch is explicit and remembered. */
   toggleDeckMode = () => {
@@ -236,7 +241,7 @@ class MarpDeckView {
       this._notify(this.plugin.i18n.t("deck.notMarkdown"), "error")
       return
     }
-    const key = this._key(filePath)
+    const key = this._storageKey(filePath)
     if (this.enabledFiles.has(key)) {
       this.enabledFiles.delete(key)
       this._deactivate()
@@ -262,7 +267,7 @@ class MarpDeckView {
   }
 
   _activate = filePath => {
-    this.activeFile = this._key(filePath)
+    this.activeFile = this._storageKey(filePath)
     this.entities.root.classList.remove("plugin-common-hidden")
     this.entities.content.classList.add(ACTIVE_CLASS)
     this.entities.title.textContent = this.utils.getFileName() || this.activeFile
@@ -298,10 +303,10 @@ class MarpDeckView {
       button.setAttribute("aria-pressed", String(button.dataset.view === view))
     })
 
-    // Source is Typora's own source mode; the deck pane is irrelevant there. Preview and
-    // split both want source mode so the user edits Markdown rather than the rendered
-    // document, which would not round-trip Marp's directives.
-    if (view !== "preview") this._ensureSourceMode(true)
+    // Every view mode wants source mode. It is what makes the preview live: the raw text
+    // lives there as the user types, whereas the rendered document would not round-trip
+    // Marp's directives and reading it would only ever see what was last saved.
+    this._ensureSourceMode(true)
 
     if (view === "source") this._restoreContentWidth()
     else this._reposition()
@@ -389,19 +394,24 @@ class MarpDeckView {
     this.renderTimer = setTimeout(this._render, this.plugin.config.DECK_RENDER_DELAY)
   }
 
-  /** Reads the deck's source. Raw text, not a markdown re-serialization: Marp reads front
-      matter and HTML comments as directives, which a normalized round-trip can drop. */
+  /**
+   * Reads the deck's source as raw text, never through a markdown re-serialization: Marp
+   * reads front matter and HTML comments as directives, and a normalized round-trip can
+   * drop them.
+   *
+   * While the document is open, source mode's CodeMirror holds exactly that raw text and
+   * reflects unsaved edits, so the preview can update as the user types. Only when source
+   * mode is unavailable does this fall back to the file on disk, which is the other
+   * mechanism the repo treats as raw.
+   */
   _readDeckSource = async () => {
+    const sourceView = File?.editor?.sourceView
+    if (sourceView?.inSourceMode && sourceView.cm?.getValue) {
+      return sourceView.cm.getValue()
+    }
     const filePath = this.utils.getFilePath()
     if (!filePath) return ""
-    try {
-      return await this.utils.Package.FsExtra.readFile(filePath, "utf8")
-    } catch (error) {
-      // The document may be brand new and not yet on disk; fall back to the buffer.
-      const fallback = this.utils.getCurrentFileContent?.()
-      if (typeof fallback === "string") return fallback
-      throw error
-    }
+    return this.utils.Package.FsExtra.readFile(filePath, "utf8")
   }
 
   _render = async () => {
@@ -525,8 +535,7 @@ class MarpDeckView {
       const absolute = this.utils.resolveLocalPath(url)
       if (!absolute || !await this.utils.existPath(absolute)) return null
       const binary = await this.utils.Package.FsExtra.readFile(absolute)
-      const ext = this.utils.Package.Path.extname(absolute).toLowerCase().replace(/^\./, "")
-      const mime = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", bmp: "image/bmp" }[ext]
+      const mime = mimeForExtension(this.utils.Package.Path.extname(absolute))
       if (!mime) return null
       return `data:${mime};base64,${binary.toString("base64")}`
     } catch (error) {
@@ -536,6 +545,9 @@ class MarpDeckView {
   }
 
   // ---------- export ----------
+
+  /** The pane's buttons and the plugin actions name formats the same way; one mapping. */
+  _formatForAction = action => (action === "export-pdf" || action === "export_pdf" ? "pdf" : "pptx")
 
   /** Exports the current document. Works with or without the pane being open. */
   exportDeck = async format => {
@@ -563,12 +575,11 @@ class MarpDeckView {
       })
       if (canceled || !target) return
 
-      // Read from disk, so make sure what is on disk is what the user sees.
+      // Reading source mode's buffer already reflects unsaved edits, so saving first is
+      // about the user's own document rather than about the export. A failure is reported
+      // and the export continues from the buffer, which is still the text on screen.
       const saved = await this._flushDocument()
-      if (!saved) {
-        this._notify(this.plugin.i18n.t("deck.saveFirst"), "error")
-        return
-      }
+      if (!saved) this._notify(this.plugin.i18n.t("deck.saveFailed"), "error")
 
       const source = await this._readDeckSource()
       const slides = await this.deck.render(source)
@@ -590,7 +601,11 @@ class MarpDeckView {
       )
 
       const bytes = format === "pptx"
-        ? buildPptx({ pages: images.map(data => ({ data: Buffer.from(data) })), slideSize: { width, height } })
+        ? buildPptx({
+          pages: images.map(data => ({ data: Buffer.from(data) })),
+          slideSize: { width, height },
+          notes: slides.map(slide => slide.notes),
+        })
         : buildPdf({ pages: images.map(data => ({ data: Buffer.from(data) })), slideSize: { width, height } })
 
       const ok = await this.utils.writeFile(target, bytes)
@@ -602,7 +617,9 @@ class MarpDeckView {
         this._notify(this.plugin.i18n.t("deck.exportCancelled"), "info")
       } else {
         console.error("[marp] export failed:", error)
-        this._notify(`${this.plugin.i18n.t("deck.exportFailed")}: ${error?.message || error}`, "error")
+        // The underlying messages come from the writers and are English prose; the user
+        // sees the localised label, and the detail is kept for the console.
+        this._notify(this.plugin.i18n.t("deck.exportFailed"), "error")
       }
     } finally {
       this.exporting = false
@@ -634,23 +651,36 @@ class MarpDeckView {
 
   _setExportBusy = busy => {
     this.entities.buttons?.forEach(button => {
-      const isExport = button.dataset.action?.startsWith("export")
-      if (isExport) button.classList.toggle("is-disabled", busy)
+      if (!button.dataset.action?.startsWith("export")) return
+      // Idle: enabled and labelled Export. Busy: still enabled, but now it cancels.
+      button.classList.remove("is-disabled")
+      const label = this.plugin.i18n.t(busy ? "deck.cancel" : this._labelForAction(button.dataset.action))
+      if (button.textContent !== label) button.textContent = label
     })
   }
 
+  _labelForAction = action => (this._formatForAction(action) === "pdf" ? "deck.exportPdf" : "deck.exportPptx")
+
   _showProgress = (done, total) => {
-    if (!this.entities.body) return
-    let element = this.entities.body.querySelector(".marp-deck-progress")
-    if (!element) {
-      element = document.createElement("div")
-      element.className = "marp-deck-progress"
-      this.entities.body.prepend(element)
+    const message = `${this.plugin.i18n.t("deck.exporting")} ${done}/${total}`
+    // Progress goes through the shared notification component so it is visible even when
+    // the pane is closed or the user is in Source view, where an in-pane bar would not be.
+    this._progressClose?.()
+    this._progressClose = this.utils.notification.show(message, "info", 0)
+    if (this.entities.body) {
+      let element = this.entities.body.querySelector(".marp-deck-progress")
+      if (!element) {
+        element = document.createElement("div")
+        element.className = "marp-deck-progress"
+        this.entities.body.prepend(element)
+      }
+      element.textContent = message
     }
-    element.textContent = `${this.plugin.i18n.t("deck.exporting")} ${done}/${total}`
   }
 
   _clearProgress = () => {
+    this._progressClose?.()
+    this._progressClose = null
     this.entities.body?.querySelector(".marp-deck-progress")?.remove()
   }
 
@@ -658,7 +688,7 @@ class MarpDeckView {
 
   _notify = (message, type = "info") => this.utils.notification.show(message, type, 4500)
 
-  _key = filePath => this.utils.Package.Path.resolve(String(filePath || ""))
+  _storageKey = filePath => this.utils.Package.Path.resolve(String(filePath || ""))
 }
 
 module.exports = MarpDeckView
