@@ -1,0 +1,5 @@
+const m = require("./plugin/marp/marp-core.min.js")
+console.log("exports:", Object.keys(m))
+const marp = new m.Marp({ html: true })
+const r = marp.render("---\ntheme: gaia\n---\n\n# Hi\n", { htmlAsArray: true })
+console.log("ok, slides:", r.html.length, "css:", r.css.length)

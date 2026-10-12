@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Type: task
 
 Part of the Marp Deck spec: `.scratch/marp-deck/spec.md`.
