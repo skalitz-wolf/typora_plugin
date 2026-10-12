@@ -234,19 +234,110 @@ describe("marp deck view - docking geometry", () => {
 })
 
 describe("marp deck view - view modes", () => {
-  it("falls back to split for an unknown mode", () => {
-    const { view } = buildView()
-    view.entities = {
-      root: { classList: { toggle() {}, contains: () => false } },
-      content: { classList: { toggle() {}, remove() {}, add() {} } },
-      views: [],
-      body: { scrollTop: 0 },
+  const buildModeView = (naturalWidth = 1000) => {
+    const classes = new Set()
+    const contentClasses = new Set()
+    const view = new MarpDeckView({
+      config: { ENABLE_DECK_VIEW: true, DECK_PANE_WIDTH_PERCENT: 40 },
+      i18n: { t: k => k },
+      utils: { Package: { Path: path } },
+    })
+    const contentEl = {
+      style: { width: "" },
+      naturalWidth,
+      getBoundingClientRect() {
+        const set = parseFloat(this.style.width)
+        return { left: 0, top: 0, width: Number.isFinite(set) ? set : this.naturalWidth }
+      },
+      classList: {
+        toggle: (name, on) => (on ? contentClasses.add(name) : contentClasses.delete(name)),
+        add: name => contentClasses.add(name),
+        remove: name => contentClasses.delete(name),
+        contains: name => contentClasses.has(name),
+      },
     }
+    const rootEl = {
+      style: {},
+      classList: {
+        toggle: (name, on) => (on ? classes.add(name) : classes.delete(name)),
+        add: name => classes.add(name),
+        remove: name => classes.delete(name),
+        contains: name => classes.has(name),
+      },
+    }
+    view.entities = {
+      root: rootEl,
+      content: contentEl,
+      write: { style: {} },
+      body: {
+        scrollTop: 0,
+        classList: {
+          toggle() {}, add() {}, remove() {}, contains: () => false,
+        },
+      },
+      views: [
+        { dataset: { view: "source" }, setAttribute() {} },
+        { dataset: { view: "preview" }, setAttribute() {} },
+        { dataset: { view: "split" }, setAttribute() {} },
+      ],
+    }
+    view.activeFile = "deck.md"
     view._ensureSourceMode = () => {}
-    view._reposition = () => {}
-    view._restoreContentWidth = () => {}
+    view._watchSourceMode = () => {}
+    return { view, classes, contentClasses }
+  }
+
+  it("falls back to split for an unknown mode", () => {
+    const { view } = buildModeView()
     view.setViewMode("nonsense")
     assert.equal(view.viewMode, "split")
+  })
+
+  it("keeps the pane visible in every view mode, so the toolbar is never lost", () => {
+    // The regression: Source used to hide the whole pane, which hid the view buttons with
+    // it and made Source a one-way trip.
+    for (const mode of ["source", "preview", "split"]) {
+      const { view, classes } = buildModeView()
+      view.setViewMode(mode)
+      assert.ok(!classes.has("plugin-common-hidden"), `the pane must stay visible in ${mode}`)
+    }
+  })
+
+  it("marks the pane compact only in Source", () => {
+    const { view, classes } = buildModeView()
+    view.setViewMode("source")
+    assert.ok(classes.has("is-source"))
+    view.setViewMode("split")
+    assert.ok(!classes.has("is-source"))
+  })
+
+  it("hides only the slide column in Source", () => {
+    const { view } = buildModeView()
+    let bodyHidden = null
+    view.entities.body.classList = {
+      toggle: (name, on) => { if (name === "plugin-common-hidden") bodyHidden = on },
+      add() {}, remove() {}, contains: () => false,
+    }
+    view.setViewMode("source")
+    assert.equal(bodyHidden, true, "the slide column should be hidden in Source")
+    view.setViewMode("split")
+    assert.equal(bodyHidden, false, "the slide column should return in Split")
+  })
+
+  it("gives the editor the full width in Source", () => {
+    const { view } = buildModeView(1000)
+    view.setViewMode("split")
+    assert.equal(view.entities.content.style.width, "600px")
+    view.setViewMode("source")
+    assert.equal(view.entities.content.style.width, "", "Source must not narrow the editor")
+  })
+
+  it("still marks preview mode, which hides the editor instead", () => {
+    const { view, contentClasses } = buildModeView()
+    view.setViewMode("preview")
+    assert.ok(contentClasses.has("is-preview"))
+    view.setViewMode("split")
+    assert.ok(!contentClasses.has("is-preview"))
   })
 })
 

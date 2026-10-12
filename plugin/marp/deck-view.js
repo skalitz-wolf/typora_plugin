@@ -82,6 +82,27 @@ class MarpDeckView {
       border-bottom: 1px solid var(--window-border-color, rgba(15, 23, 42, .12));
       background: var(--side-bar-bg-color, #f8fafc);
     }
+    /*
+     * In Source the pane is just the toolbar. It must not stretch down the page: the editor
+     * needs the full height, and a full-height transparent overlay would swallow every click
+     * on the text behind it.
+     */
+    #plugin-marp-deck.is-source {
+      height: auto;
+      background: transparent;
+      border-left: 0;
+      box-shadow: none;
+      pointer-events: none;
+    }
+    #plugin-marp-deck.is-source .marp-deck-header {
+      pointer-events: auto;
+      border: 1px solid var(--window-border-color, rgba(15, 23, 42, .12));
+      border-radius: 4px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
+    }
+    #plugin-marp-deck.is-source .marp-deck-resizer {
+      display: none;
+    }
     #plugin-marp-deck .marp-deck-resizer {
       flex: 0 0 auto;
       width: 5px;
@@ -307,7 +328,6 @@ class MarpDeckView {
   setViewMode = mode => {
     const view = VIEW_MODES.includes(mode) ? mode : "split"
     this.viewMode = view
-    this.entities.root.classList.toggle("plugin-common-hidden", view === "source")
     this.entities.content.classList.toggle("is-preview", view === "preview")
     this.entities.views.forEach(button => {
       button.setAttribute("aria-pressed", String(button.dataset.view === view))
@@ -323,10 +343,45 @@ class MarpDeckView {
      * when they need the raw text to stay live while typing (see _watchSourceMode).
      */
     this._watchSourceMode()
+    if (view === "source") this._ensureSourceMode(true)
 
-    if (view === "source") this._restoreContentWidth()
-    else this._reposition()
+    // The pane stays mounted in every view mode, Source included. Its toolbar is the only
+    // way back out of Source, so hiding the pane there would make the choice one-way.
+    this._applyViewLayout()
   }
+
+  /**
+   * The pane is never hidden while deck mode is on. In Source it collapses to a compact
+   * toolbar floating over the editor's top-right; in Preview and Split it is the full-height
+   * slide column. Hiding the pane in Source - as an earlier version did - made the view
+   * buttons disappear with it and turned the choice into a one-way trip.
+   */
+  _applyViewLayout = () => {
+    const { root, body, content } = this.entities
+    if (!root) return
+
+    const isSource = this.viewMode === "source"
+    root.classList.toggle("is-source", isSource)
+    root.classList.remove("plugin-common-hidden")
+    if (body) body.classList.toggle("plugin-common-hidden", isSource)
+    content.classList.toggle("is-preview", this.viewMode === "preview")
+
+    if (isSource) {
+      // Source gives the editor the full width; the toolbar just floats above it.
+      this._restoreContentWidth()
+      const full = this._baseContentWidth()
+      if (full <= 0) return
+      const contentRect = content.getBoundingClientRect()
+      const width = Math.min(this._sourceToolbarWidth(full), full)
+      root.style.left = `${contentRect.left + full - width}px`
+      root.style.width = `${width}px`
+    } else {
+      this._reposition()
+    }
+  }
+
+  /** Enough room for the view buttons, but never more than the content area. */
+  _sourceToolbarWidth = available => Math.min(Math.max(available * 0.5, 320), available)
 
   _ensureSourceMode = want => {
     const sourceView = File?.editor?.sourceView
