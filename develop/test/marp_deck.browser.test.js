@@ -17,6 +17,7 @@ const browserPath = process.env.TYPORA_PLUGIN_BROWSER_PATH || defaultBrowserPath
 const browserAvailable = Boolean(chromium && browserPath && fs.existsSync(browserPath))
 
 const MarpDeck = require("../../plugin/marp/deck.js")
+const { rasterizeSlide, rasterizeDeck } = require("../../plugin/marp/rasterizer.js")
 
 // A tiny opaque PNG, used to prove that an image referenced by path is *not* enough and
 // that inlining it as a data URI is what makes it survive rasterization.
@@ -133,6 +134,46 @@ const runBrowserVerification = async () => {
       0,
       "a path-referenced image unexpectedly rendered; the inlining requirement may no longer hold",
     )
+
+    // The rasterizer itself, which is the module the export pipeline calls. It runs in the
+    // page context so it sees the same DOM a plugin would.
+    const rasterizerSource = fs.readFileSync(
+      path.join(__dirname, "../../plugin/marp/rasterizer.js"),
+      "utf8",
+    )
+    const rasterizer = await page.evaluate(
+      async ({ svg, source }) => {
+        const module = { exports: {} }
+        // The module is plain CJS with no requires, so a minimal loader is enough.
+        new Function("module", "exports", "require", source)(module, module.exports, () => {
+          throw new Error("the rasterizer must not require anything")
+        })
+        const { rasterizeSlide, rasterizeDeck } = module.exports
+
+        const bytes = await rasterizeSlide(svg, { width: 1280, height: 720, scale: 1 })
+        const doubled = await rasterizeSlide(svg, { width: 1280, height: 720, scale: 2 })
+        const progress = []
+        const deckBytes = await rasterizeDeck(
+          [{ svg }, { svg }],
+          { width: 1280, height: 720, scale: 1 },
+          { onProgress: (done, total) => progress.push([done, total]) },
+        )
+        return {
+          // Compare the PNG signature by hand; Uint8Array.equals is a Node-only method.
+          isPng: [137, 80, 78, 71, 13, 10, 26, 10].every((b, i) => bytes[i] === b),
+          length: bytes.length,
+          doubledLength: doubled.length,
+          pages: deckBytes.length,
+          progress,
+        }
+      },
+      { svg: slide.svg, source: rasterizerSource },
+    )
+    assert.ok(rasterizer.isPng, "rasterizer output must be a PNG")
+    assert.ok(rasterizer.length > 1000, "rasterizer output looks empty")
+    assert.ok(rasterizer.doubledLength > rasterizer.length, "scale should increase the encoded size")
+    assert.equal(rasterizer.pages, 2, "rasterizeDeck should return one image per slide")
+    assert.deepEqual(rasterizer.progress, [[1, 2], [2, 2]], "progress should report each page")
   } finally {
     await browser.close()
   }
