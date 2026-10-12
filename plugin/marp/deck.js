@@ -32,6 +32,20 @@ const stripCharset = css => css.replace(/@charset\s+[^;]*;/gi, "")
 const stripImports = css => css.replace(/@import\s+[^;]*;/gi, "")
 const stripScripts = html => html.replace(/<script\b[\s\S]*?<\/script>/gi, "")
 
+/**
+ * Marp rewrites every emoji into a remote Twemoji `<img>`. That image is fetched over the
+ * network, so offline it rasterizes as a broken-image glyph, and it is also the one thing
+ * a "no remote assets" export cannot honour. Replacing the image with its own `alt` text
+ * puts the emoji character back in the markup, where the system emoji font renders it.
+ */
+const inlineEmoji = html => html.replace(
+  /<img\b[^>]*\bdata-marp-twemoji\b[^>]*>/gi,
+  match => {
+    const alt = match.match(/\balt="([^"]*)"/)
+    return alt ? alt[1] : ""
+  },
+)
+
 const HASH_INIT = 2166136261
 const HASH_PRIME = 16777619
 
@@ -145,6 +159,7 @@ class MarpDeck {
 
   _toRasterReadySvg = async (slideHtml, css) => {
     let svg = stripScripts(slideHtml)
+    svg = inlineEmoji(svg)
     svg = ensureSvgNamespace(svg)
     svg = ensureForeignObjectNamespace(svg)
     svg = applyIntrinsicSize(svg)

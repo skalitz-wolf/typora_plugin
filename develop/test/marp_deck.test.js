@@ -127,6 +127,16 @@ describe("marp deck - raster-safe svg shape", () => {
     const [slide] = await render(DECK)
     assert.ok(!/<script/i.test(slide.svg))
   })
+
+  it("turns marp's remote twemoji images back into text, so emoji survive offline", async () => {
+    // Marp rewrites emoji to a remote twemoji <img>, which rasterizes as a broken-image
+    // glyph with no network. The alt text carries the original emoji character.
+    const [slide] = await render("# Hi 🎉 and 😄\n")
+    assert.ok(!/<img[^>]*data-marp-twemoji/.test(slide.svg), "remote emoji images must not reach the bitmap")
+    assert.ok(!slide.svg.includes("cdn.jsdelivr.net/gh/jdecked/twemoji"), "no remote emoji asset should remain")
+    assert.match(slide.svg, /🎉/)
+    assert.match(slide.svg, /😄/)
+  })
 })
 
 describe("marp deck - image inlining", () => {
