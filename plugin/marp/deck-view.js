@@ -31,7 +31,6 @@ class MarpDeckView {
     this.renderToken = 0
     this.renderTimer = null
     this.paneWidth = 0
-    this.baseContentWidth = null
     this.panning = null
     this.exportCancelled = false
     this.exporting = false
@@ -56,9 +55,16 @@ class MarpDeckView {
     content.${ACTIVE_CLASS}.is-preview > #ty-oversize-body {
       display: none !important;
     }
+    /*
+     * Absolute, not fixed. A fixed element is positioned against the window, so when the
+     * content area does not start at the window's left edge (the sidebar is open) the
+     * pane lands in the wrong place. Absolute positioning resolves against the content
+     * element, which Typora already establishes as the containing block - the same choice
+     * the d2 and html_editor views make.
+     */
     #plugin-marp-deck {
-      position: fixed;
-      z-index: 9990;
+      position: absolute;
+      z-index: 20;
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
@@ -320,43 +326,71 @@ class MarpDeckView {
 
   // ---------- docking ----------
 
-  /** Width of the pane as a percentage of the content area, or an explicit pixel width. */
-  _paneWidthFor = contentWidth => {
-    if (this.paneWidth > 0) return Math.min(this.paneWidth, Math.max(120, contentWidth - 120))
-    const percent = Number(this.plugin.config.DECK_PANE_WIDTH_PERCENT) || 40
-    return Math.round(contentWidth * percent / 100)
+  /**
+   * Width of the pane within the available space.
+   *
+   * The editor keeps a minimum share so the pane can never swallow it, and the pane keeps
+   * a minimum too so a narrow window still shows something. Both minimums are clamped
+   * against the available width rather than assumed to fit inside it.
+   */
+  _paneWidthFor = availableWidth => {
+    const editorMin = Math.min(240, Math.round(availableWidth * 0.4))
+    const paneMin = Math.min(160, Math.round(availableWidth * 0.2))
+    const wanted = this.paneWidth > 0
+      ? this.paneWidth
+      : Math.round(availableWidth * (Number(this.plugin.config.DECK_PANE_WIDTH_PERCENT) || 40) / 100)
+    return Math.max(paneMin, Math.min(wanted, availableWidth - editorMin))
+  }
+
+  /**
+   * The full width available to the content area, with the pane's own narrowing undone.
+   *
+   * This must be measured with the inline width cleared: the pane narrows `content` by
+   * setting an inline width, so measuring the current rect would read back the narrowed
+   * value and each reposition would shrink by another pane width. Clearing first also
+   * re-measures the sidebar's current state, which is what makes the split survive a
+   * sidebar toggle.
+   */
+  _baseContentWidth = () => {
+    const { content } = this.entities
+    const previous = content.style.width
+    content.style.width = ""
+    const width = content.getBoundingClientRect().width
+    content.style.width = previous
+    return width
   }
 
   _reposition = () => {
     const { content, root } = this.entities
     if (!content || !root || root.classList.contains("plugin-common-hidden")) return
-    const rect = content.getBoundingClientRect()
-    if (rect.width <= 0) return
 
-    if (this.baseContentWidth === null) this.baseContentWidth = rect.width
-    const width = this._paneWidthFor(this.baseContentWidth)
-    root.style.top = `${rect.top}px`
-    root.style.height = `${rect.height}px`
-    root.style.left = `${rect.left + rect.width - width}px`
-    root.style.width = `${width}px`
+    const full = this._baseContentWidth()
+    if (full <= 0) return
+
+    const paneWidth = this._paneWidthFor(full)
+
+    // The pane is a child of `content`, so its coordinates are relative to it: the pane
+    // sits at the right edge of the full width, which is the content area's own width.
+    root.style.top = "0"
+    root.style.height = "100%"
+    root.style.left = `${full - paneWidth}px`
+    root.style.width = `${paneWidth}px`
     // Narrow the editor rather than covering it. `#write` carries its own max-width, so it
     // is reset to `initial` for the narrower column, exactly as the other docked panels do.
-    content.style.width = `${rect.width - width}px`
+    content.style.width = `${full - paneWidth}px`
     if (this.entities.write) this.entities.write.style.width = "initial"
   }
 
   _restoreContentWidth = () => {
-    if (this.baseContentWidth === null) return
     this.entities.content.style.width = ""
     if (this.entities.write) this.entities.write.style.width = ""
-    this.baseContentWidth = null
   }
 
   _onLayoutChanged = () => {
     if (!this.activeFile) return
     // The sidebar and the window can both change the content area's width, and there is no
-    // resize event for the content element itself, so re-derive from scratch each time.
-    this.baseContentWidth = null
+    // resize event for the content element itself. _reposition re-measures from scratch,
+    // so nothing needs invalidating here.
     if (this.viewMode !== "source") this._reposition()
   }
 

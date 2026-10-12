@@ -115,6 +115,113 @@ describe("marp deck view - pane sizing", () => {
   })
 })
 
+describe("marp deck view - docking geometry", () => {
+  /**
+   * A fake `content` whose measured width reflects whatever inline width has been set on
+   * it, the way a real element does. This is what makes the shrinking bug reproducible:
+   * measuring after narrowing reads back the narrowed value.
+   */
+  /**
+   * A fake content element whose measured width reflects whatever inline width was set on
+   * it, the way a real element does. That is what makes the shrinking bug reproducible:
+   * measuring after narrowing reads the narrowed value back.
+   */
+  const buildLayout = (naturalWidth = 1000) => {
+    // `naturalWidth` models the space Typora gives the content area, which the sidebar and
+    // the window change. A set inline width wins over it, exactly like a real element.
+    const contentEl = {
+      style: { width: "" },
+      naturalWidth,
+      getBoundingClientRect() {
+        const set = parseFloat(this.style.width)
+        return { left: 0, top: 0, width: Number.isFinite(set) ? set : this.naturalWidth }
+      },
+    }
+    const writeEl = { style: { width: "" } }
+    const rootEl = {
+      style: {},
+      classList: { contains: () => false, add() {}, remove() {}, toggle() {} },
+    }
+    return { contentEl, writeEl, rootEl }
+  }
+
+  const buildView = (naturalWidth, config = {}) => {
+    // Class fields are per-instance, so the real constructor must run; its MarpDeck is
+    // inert until render is called, which these tests never do.
+    const view = new MarpDeckView({
+      config: {
+        ENABLE_DECK_VIEW: true,
+        DECK_PANE_WIDTH_PERCENT: 40,
+        DECK_SLIDE_WIDTH: 1280,
+        DECK_SLIDE_HEIGHT: 720,
+        DECK_EXPORT_SCALE: 2,
+        ALLOW_REMOTE_FONTS: false,
+        ...config,
+      },
+      i18n: { t: k => k },
+      utils: { Package: { Path: path } },
+    })
+    const layout = buildLayout(naturalWidth)
+    view.entities = { content: layout.contentEl, write: layout.writeEl, root: layout.rootEl }
+    // `_onLayoutChanged` ignores events for a document that is not a deck.
+    view.activeFile = "C:\\notes\\deck.md"
+    return view
+  }
+
+  it("splits the full width between editor and pane, not the already-narrowed width", () => {
+    const view = buildView(1000)
+    view._reposition()
+    // 40% of 1000 goes to the pane; the editor keeps 600.
+    assert.equal(view.entities.root.style.width, "400px")
+    assert.equal(view.entities.content.style.width, "600px")
+  })
+
+  it("is idempotent, so entering deck mode twice does not shrink the editor again", () => {
+    // The regression: _reposition used to run on activation and again on setting the view
+    // mode. Measuring the narrowed content made the second pass shrink by another pane.
+    const view = buildView(1000)
+    view._reposition()
+    view._reposition()
+    view._reposition()
+    assert.equal(view.entities.content.style.width, "600px")
+    assert.equal(view.entities.root.style.width, "400px")
+  })
+
+  it("keeps the split correct after the sidebar changes the available width", () => {
+    const view = buildView(1000)
+    view._reposition()
+    // Sidebar opens: the space available to the content area shrinks.
+    view.entities.content.naturalWidth = 600
+    view._onLayoutChanged()
+    // 40% of the new 600 goes to the pane.
+    assert.equal(view.entities.root.style.width, "240px")
+    assert.equal(view.entities.content.style.width, "360px")
+  })
+
+  it("places the pane at the right edge of the content area, in content coordinates", () => {
+    const view = buildView(1000)
+    view._reposition()
+    // The pane is a child of content, so its offset is measured from content, not the window.
+    assert.equal(view.entities.root.style.left, "600px")
+    assert.equal(view.entities.root.style.top, "0")
+    assert.equal(view.entities.root.style.height, "100%")
+  })
+
+  it("restores the editor to full width when the pane goes away", () => {
+    const view = buildView(1000)
+    view._reposition()
+    view._restoreContentWidth()
+    assert.equal(view.entities.content.style.width, "")
+    assert.equal(view.entities.write.style.width, "")
+  })
+
+  it("never squeezes the editor below a usable width", () => {
+    const view = buildView(1000, { DECK_PANE_WIDTH_PERCENT: 95 })
+    view._reposition()
+    assert.ok(parseFloat(view.entities.content.style.width) >= 120)
+  })
+})
+
 describe("marp deck view - view modes", () => {
   it("falls back to split for an unknown mode", () => {
     const { view } = buildView()
