@@ -1359,7 +1359,8 @@
     "deck.exportBusy": "An export is already running",
     "deck.saveFailed": "Could not save the document; the export used the text on screen",
     "deck.empty": "This document has no slides",
-    "deck.notMarkdown": "Deck mode only works on Markdown documents"
+    "deck.notMarkdown": "Deck mode only works on Markdown documents",
+    "deck.needSourceMode": "Live preview needs Source mode: outside it Typora re-serializes the document, which drops Marp's directives."
   },
   "infographic": {
     "pluginName": "Infographic",

@@ -197,6 +197,17 @@ class MarpDeckView {
   process = () => {
     if (!this.enabled) return
 
+    this._bindViewModeButtons()
+    this._bindResizer()
+
+    this.utils.eventHub.on(this.utils.eventHub.eventType.fileContentLoaded, this._onFileContentLoaded)
+    this.utils.eventHub.on(this.utils.eventHub.eventType.fileEdited, this._onFileEdited)
+    this.utils.eventHub.on(this.utils.eventHub.eventType.afterToggleSidebar, this._onLayoutChanged)
+    this.utils.eventHub.on(this.utils.eventHub.eventType.afterSetSidebarWidth, this._onLayoutChanged)
+    window.addEventListener("resize", this._onLayoutChanged)
+  }
+
+  _bindViewModeButtons = () => {
     this.entities.buttons.forEach(button => {
       button.addEventListener("click", () => {
         // While an export is running the export controls become Cancel, so the user is
@@ -212,13 +223,6 @@ class MarpDeckView {
     this.entities.views.forEach(button => {
       button.addEventListener("click", () => this.setViewMode(button.dataset.view))
     })
-    this._bindResizer()
-
-    this.utils.eventHub.on(this.utils.eventHub.eventType.fileContentLoaded, this._onFileContentLoaded)
-    this.utils.eventHub.on(this.utils.eventHub.eventType.fileEdited, this._onFileEdited)
-    this.utils.eventHub.on(this.utils.eventHub.eventType.afterToggleSidebar, this._onLayoutChanged)
-    this.utils.eventHub.on(this.utils.eventHub.eventType.afterSetSidebarWidth, this._onLayoutChanged)
-    window.addEventListener("resize", this._onLayoutChanged)
   }
 
   postprocess = () => {
@@ -272,6 +276,8 @@ class MarpDeckView {
 
   _activate = filePath => {
     this.activeFile = this._storageKey(filePath)
+    // The source-mode prompt is per document, so a new deck gets its own chance to ask.
+    this._sourceModeRequested = false
     this.entities.root.classList.remove("plugin-common-hidden")
     this.entities.content.classList.add(ACTIVE_CLASS)
     this.entities.title.textContent = this.utils.getFileName() || this.activeFile
@@ -307,10 +313,16 @@ class MarpDeckView {
       button.setAttribute("aria-pressed", String(button.dataset.view === view))
     })
 
-    // Every view mode wants source mode. It is what makes the preview live: the raw text
-    // lives there as the user types, whereas the rendered document would not round-trip
-    // Marp's directives and reading it would only ever see what was last saved.
-    this._ensureSourceMode(true)
+    /*
+     * Deck mode deliberately does NOT switch Typora into source mode. Doing so would hide
+     * the pinned sidebar - Typora's own rule is
+     * `.pin-outline:not(.typora-sourceview-on) #typora-sidebar{display:block}` - and the
+     * file tree and outline are part of how the user works.
+     *
+     * Source mode is entered only when the user asks for it by picking the Source view, or
+     * when they need the raw text to stay live while typing (see _watchSourceMode).
+     */
+    this._watchSourceMode()
 
     if (view === "source") this._restoreContentWidth()
     else this._reposition()
@@ -320,6 +332,42 @@ class MarpDeckView {
     const sourceView = File?.editor?.sourceView
     if (!sourceView || typeof File.toggleSourceMode !== "function") return
     if (want && !sourceView.inSourceMode) File.toggleSourceMode()
+  }
+
+  _isSourceMode = () => Boolean(File?.editor?.sourceView?.inSourceMode)
+
+  /**
+   * Keeps the preview honest about where the deck's text comes from.
+   *
+   * `File.editor.getMarkdown()` reads the raw text in source mode but re-serializes the AST
+   * in the rendered view, and that re-serialization drops the directives Marp depends on -
+   * front matter and `_class` comments - so a preview built on it would silently lose the
+   * deck's theme and per-slide classes. Live preview therefore needs source mode, and the
+   * first time the user edits a deck we ask for it rather than rendering something wrong.
+   *
+   * The ask is once per document: if the user declines, the preview stops tracking edits
+   * rather than nagging, and the Export action still re-reads on demand.
+   */
+  _watchSourceMode = () => {
+    if (this._sourceModeWatchInstalled) return
+    this._sourceModeWatchInstalled = true
+    this._onFileEdited = () => {
+      if (!this.activeFile || this.viewMode === "source") return
+      if (!this.plugin.config.DECK_AUTO_PREVIEW) return
+      if (!this._isSourceMode()) {
+        this._requestSourceModeOnce()
+        return
+      }
+      clearTimeout(this.renderTimer)
+      this.renderTimer = setTimeout(this._render, this.plugin.config.DECK_RENDER_DELAY)
+    }
+  }
+
+  _requestSourceModeOnce = () => {
+    if (this._sourceModeRequested) return
+    this._sourceModeRequested = true
+    this._notify(this.plugin.i18n.t("deck.needSourceMode"), "warning", 8000)
+    this._ensureSourceMode(true)
   }
 
   // ---------- docking ----------
@@ -419,31 +467,46 @@ class MarpDeckView {
 
   // ---------- live preview ----------
 
-  _onFileEdited = () => {
-    if (!this.activeFile || this.viewMode === "source") return
-    if (!this.plugin.config.DECK_AUTO_PREVIEW) return
-    clearTimeout(this.renderTimer)
-    this.renderTimer = setTimeout(this._render, this.plugin.config.DECK_RENDER_DELAY)
-  }
-
   /**
    * Reads the deck's source as raw text, never through a markdown re-serialization: Marp
-   * reads front matter and HTML comments as directives, and a normalized round-trip can
-   * drop them.
+   * reads front matter and HTML comments as directives, and a round-trip through the AST
+   * drops them (see ADR-0005 for the measurement).
    *
-   * While the document is open, source mode's CodeMirror holds exactly that raw text and
-   * reflects unsaved edits, so the preview can update as the user types. Only when source
-   * mode is unavailable does this fall back to the file on disk, which is the other
-   * mechanism the repo treats as raw.
+   * `getMarkdown()` is raw in source mode and re-serialized everywhere else, so this is
+   * only safe to use for the preview, which asks for source mode first. Export uses
+   * `_readDeckForExport`, which guarantees raw text in every mode.
    */
   _readDeckSource = async () => {
-    const sourceView = File?.editor?.sourceView
-    if (sourceView?.inSourceMode && sourceView.cm?.getValue) {
-      return sourceView.cm.getValue()
+    if (typeof this.utils.getCurrentFileContent === "function") {
+      const content = this.utils.getCurrentFileContent()
+      if (typeof content === "string") return content
     }
+    return this._readDeckFromDisk()
+  }
+
+  _readDeckFromDisk = async () => {
     const filePath = this.utils.getFilePath()
     if (!filePath) return ""
     return this.utils.Package.FsExtra.readFile(filePath, "utf8")
+  }
+
+  /**
+   * The export's source of truth.
+   *
+   * In source mode `getMarkdown()` is already raw and current, so it is used directly.
+   * Outside it the only raw source is the file, so the document is saved first and read
+   * back - exporting a deck whose theme and per-slide classes were silently dropped would
+   * be worse than the save. If the save fails, the in-memory text is used and the user is
+   * told the export may not match the file.
+   */
+  _readDeckForExport = async () => {
+    if (this._isSourceMode()) return this._readDeckSource()
+    const saved = await this._flushDocument()
+    if (!saved) {
+      this._notify(this.plugin.i18n.t("deck.saveFailed"), "error")
+      return this._readDeckSource()
+    }
+    return this._readDeckFromDisk()
   }
 
   _render = async () => {
@@ -607,13 +670,9 @@ class MarpDeckView {
       })
       if (canceled || !target) return
 
-      // Reading source mode's buffer already reflects unsaved edits, so saving first is
-      // about the user's own document rather than about the export. A failure is reported
-      // and the export continues from the buffer, which is still the text on screen.
-      const saved = await this._flushDocument()
-      if (!saved) this._notify(this.plugin.i18n.t("deck.saveFailed"), "error")
-
-      const source = await this._readDeckSource()
+      // Outside source mode the raw text only exists on disk, so the export saves first and
+      // reads back. That is what keeps Marp's directives intact in the output.
+      const source = await this._readDeckForExport()
       const slides = await this.deck.render(source)
       if (!slides.length) {
         this._notify(this.plugin.i18n.t("deck.empty"), "error")
@@ -718,7 +777,7 @@ class MarpDeckView {
 
   // ---------- helpers ----------
 
-  _notify = (message, type = "info") => this.utils.notification.show(message, type, 4500)
+  _notify = (message, type = "info", duration = 4500) => this.utils.notification.show(message, type, duration)
 
   _storageKey = filePath => this.utils.Package.Path.resolve(String(filePath || ""))
 }

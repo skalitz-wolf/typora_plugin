@@ -1359,7 +1359,8 @@
     "deck.exportBusy": "已有导出任务在进行",
     "deck.saveFailed": "文档保存失败，已按屏幕上的内容导出",
     "deck.empty": "该文档没有幻灯片",
-    "deck.notMarkdown": "演示文稿模式仅适用于 Markdown 文档"
+    "deck.notMarkdown": "演示文稿模式仅适用于 Markdown 文档",
+    "deck.needSourceMode": "实时预览需要源码模式：非源码模式下 Typora 会重新序列化文档，会丢掉 Marp 的指令。"
   },
   "infographic": {
     "pluginName": "Infographic",
