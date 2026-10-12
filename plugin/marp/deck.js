@@ -1,5 +1,3 @@
-const { Marp } = require("./marp-core.min.js")
-
 /**
  * Turns whole-document Markdown into raster-ready slides.
  *
@@ -17,6 +15,15 @@ const { Marp } = require("./marp-core.min.js")
  *  - Marp's inline `<script>` (its SVG polyfill / auto-scaling) is meaningless in a
  *    rasterized slide and can break serialization.
  */
+
+// marp-core is a browser bundle that touches `document` as soon as it loads, so it must be
+// required lazily - the same reason the fence renderer defers it. Requiring it at module
+// scope would make merely importing this file depend on a live DOM.
+let MarpClass = null
+const loadMarp = () => {
+  if (!MarpClass) ({ Marp: MarpClass } = require("./marp-core.min.js"))
+  return MarpClass
+}
 
 // Marp's container prefix. The `div.marpit > svg` part is stripped by array mode, so all
 // three observed forms are removed here.
@@ -128,14 +135,22 @@ const rewriteAttr = (text, attr, mapper) => text.replace(
 class MarpDeck {
   constructor(options = {}) {
     this.options = options
-    this.marp = new Marp({ html: true, ...options.marpOptions })
+    this.marp = null
+  }
+
+  _getMarp = () => {
+    if (!this.marp) {
+      const Marp = loadMarp()
+      this.marp = new Marp({ html: true, ...this.options.marpOptions })
+    }
+    return this.marp
   }
 
   /**
    * @returns {Promise<Array<{index: number, svg: string, hash: string, notes: string}>>}
    */
   render = async markdown => {
-    const result = this.marp.render(markdown || "", { htmlAsArray: true })
+    const result = this._getMarp().render(markdown || "", { htmlAsArray: true })
     const css = this._buildCss(result.css)
     const slides = []
 

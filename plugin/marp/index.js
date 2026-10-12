@@ -1,13 +1,37 @@
+const MarpDeckView = require("./deck-view.js")
+
 class MarpPlugin extends BasePlugin {
   marp = null
+  deckView = new MarpDeckView(this)
 
-  style = () => `#write .plugin-marp-content { all: initial; }`
+  staticActions = this.i18n.fillActions([
+    { act_value: "toggle_deck_mode", act_hotkey: this.config.DECK_HOTKEY },
+    { act_value: "export_pptx" },
+    { act_value: "export_pdf" },
+  ])
+
+  style = () => `
+    #write .plugin-marp-content { all: initial; }
+    ${this.deckView.style()}
+  `
 
   hotkey = () => [{ hotkey: this.config.HOTKEY, callback: this.call }]
 
-  call = () => this.utils.insertBlockCode(null, this.config.LANGUAGE, this.config.TEMPLATE)
+  call = action => {
+    if (action === "toggle_deck_mode") return this.deckView.toggleDeckMode()
+    if (action === "export_pptx") return this.deckView.exportDeck("pptx")
+    if (action === "export_pdf") return this.deckView.exportDeck("pdf")
+    return this.utils.insertBlockCode(null, this.config.LANGUAGE, this.config.TEMPLATE)
+  }
+
+  html = () => this.deckView.html()
+
+  init = () => this.deckView.init()
+
+  postprocess = () => this.deckView.postprocess()
 
   process = () => {
+    this.deckView.process()
     const parser = this.utils.thirdPartyDiagramParser
     parser.register({
       lang: this.config.LANGUAGE,

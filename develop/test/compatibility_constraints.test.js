@@ -4,7 +4,7 @@ const path = require("node:path")
 const test = require("node:test")
 
 const repoRoot = path.resolve(__dirname, "../..")
-const pluginRoots = ["repository", "html_editor", "diagram_enhance"]
+const pluginRoots = ["repository", "html_editor", "diagram_enhance", "marp"]
   .map(name => path.join(repoRoot, "plugin", name))
 const ignoredDirectories = new Set(["lib", "resource"])
 
