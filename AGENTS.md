@@ -136,3 +136,17 @@ The build (`develop/build/index.cjs`) uses esbuild to bundle NPM dependencies in
 
 - `ci.yml` -- Runs `npm ci && npm test` on push and pull_request (Node 20.x and 24.x matrix, working dir `develop/`)  
 - `release.yml` -- On tag `X.Y.Z`, writes plugin/VERSION.json, zips `plugin/` as `typora-plugin@vX.Y.Z.zip`, publishes GitHub Release
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as markdown under `.scratch/<feature-slug>/` (GitHub Issues is disabled on `origin`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical role names, unchanged. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` at the root plus `docs/adr/`. See `docs/agents/domain.md`.

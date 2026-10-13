@@ -1,0 +1,62 @@
+# typora_plugin
+
+An extensible plugin system for the Typora Markdown editor. This glossary covers the
+vocabulary introduced by the Marp presentation work; the rest of the plugin system
+keeps upstream's language.
+
+## Presentations
+
+**Slide**:
+One page of a presentation, produced by Marp from one segment of Markdown (segments are
+split on `---`).
+_Avoid_: page, 画面, 一页
+
+**Deck**:
+The ordered sequence of slides produced from a single Markdown file.
+_Avoid_: PPT, presentation file, 幻灯片 (when you mean the whole deck)
+
+**Directive**:
+Metadata that Marp reads to control rendering (front matter, `<!-- _class: ... -->`,
+`![bg](...)`) rather than content that appears on a slide.
+_Avoid_: option, 配置
+
+**Theme**:
+A named set of Marp styles (e.g. `gaia`, `default`) selected per deck, distinct from the
+Typora editor theme.
+_Avoid_: style, 样式
+
+**Rasterize**:
+To turn a rendered slide into a bitmap. The result is fixed pixels: its text can no
+longer be selected, searched, or edited.
+_Avoid_: 截图, export image
+
+**Image-based PPTX**:
+A PPTX in which every slide is a single full-page bitmap. Distinct from an editable
+PPTX, where each slide is real PowerPoint text and shapes.
+_Avoid_: 截图 PPT, 不可编辑 PPTX
+
+## Presentation UI
+
+**Preview Pane**:
+The plugin-owned surface that shows the rendered deck, docked beside or over Typora's
+editor.
+_Avoid_: viewer, 幻灯片面板
+
+**Deck Mode**:
+The per-file switch that turns a Markdown document into a Deck. Off, the document behaves
+as an ordinary note and none of the controls below exist.
+_Avoid_: presentation mode, 演示模式
+
+**Layout**:
+Whether the deck surface shows one column or two. A Deck has no third layout: there is no
+view that shows the Markdown instead of the editor (see ADR-0006).
+_Avoid_: split view, view mode, 显示模式
+
+**Editor Column**:
+The column that holds Typora's own editor, untouched. A Deck never switches Typora into
+source mode and never substitutes its own text surface.
+_Avoid_: source pane, 源码面板
+
+**Slide Column**:
+The column that shows the rendered Slides.
+_Avoid_: preview pane, 预览栏

@@ -3709,6 +3709,41 @@ INTERACTIVE_MODE = true
 # See: https://github.com/marp-team/marp-core?tab=readme-ov-file#constructor-options
 MARP_CORE_OPTIONS = { html = true }
 
+# =========== [ Deck View ] ===========
+# Treat a whole Markdown document as a slide deck: preview it as slides and export it as
+# an image-based PPTX or PDF. Deck mode is switched on per file and remembered.
+ENABLE_DECK_VIEW = true
+
+# Hotkey for toggling Deck mode on the current document
+DECK_HOTKEY = ""
+
+# Refresh the slide preview while typing
+DECK_AUTO_PREVIEW = true
+
+# Delay (ms) after typing stops before the preview refreshes
+DECK_RENDER_DELAY = 400
+
+# Width of the slide pane in split view, as a percentage of the content area.
+# Dragging the pane's left edge overrides this for the session.
+DECK_PANE_WIDTH_PERCENT = 40
+
+# Slide geometry in pixels. These are Marp's own 16:9 defaults; change them for 4:3 or
+# a custom size.
+DECK_SLIDE_WIDTH = 1280
+DECK_SLIDE_HEIGHT = 720
+
+# Export resolution multiplier. Marp CLI uses 2 for PPTX, so a 1280x720 slide becomes a
+# 2560x1440 image.
+DECK_EXPORT_SCALE = 2
+
+# Allow the export to fetch remote fonts. Off by default so exporting never stalls
+# waiting on the network; text then falls back to system fonts.
+ALLOW_REMOTE_FONTS = false
+
+# Optional directory of font files (.ttf/.otf/.woff/.woff2) to embed into the deck.
+# Leave empty to use the system fonts, which is what makes CJK and emoji render.
+FONT_DIR = ""
+
 # =========== [ Template ] ===========
 # Template: Default sample padding content when inserting a code block
 TEMPLATE = """
