@@ -48,22 +48,15 @@ as an ordinary note and none of the controls below exist.
 _Avoid_: presentation mode, 演示模式
 
 **Layout**:
-Whether the deck surface shows one column or two. Independent of what the editor column
-is showing.
+Whether the deck surface shows one column or two. A Deck has no third layout: there is no
+view that shows the Markdown instead of the editor (see ADR-0006).
 _Avoid_: split view, view mode, 显示模式
 
 **Editor Column**:
-The column that holds the document being edited. It shows either Typora's rendered editor
-or a plain-text source surface; which one is a property of the column, not a mode the
-whole editor enters.
+The column that holds Typora's own editor, untouched. A Deck never switches Typora into
+source mode and never substitutes its own text surface.
 _Avoid_: source pane, 源码面板
 
 **Slide Column**:
 The column that shows the rendered Slides.
 _Avoid_: preview pane, 预览栏
-
-**Source Surface**:
-The plain-text editor the plugin shows in the Editor Column when the user asks for
-Markdown rather than the rendered view. Typora is not switched into its own source mode to
-provide it.
-_Avoid_: source mode, 源码模式
