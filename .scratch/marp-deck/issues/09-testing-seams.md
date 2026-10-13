@@ -31,7 +31,7 @@ catches a blank Slide.
 **Compatibility guard**: add the `marp` plugin to the existing compatibility test's plugin
 list, so the new pane is held to the Chrome 84 boundary and the no-native-controls rule.
 
-**Explicitly not tested**: the view controller's DOM work (docking, resizing, View Mode
+**Explicitly not tested**: the view controller's DOM work (docking, resizing, Layout
 switching), matching the precedent of the d2 and html_editor file views, which test only
 their pure helpers.
 

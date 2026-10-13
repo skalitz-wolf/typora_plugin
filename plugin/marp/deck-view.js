@@ -17,7 +17,7 @@ const LAYOUTS = [LAYOUT_SPLIT, "editor", "preview"]
 
 /**
  * The Deck view: an explicit, remembered per-file switch that turns a Markdown document
- * into slides, plus the three View Modes and the export actions.
+ * into slides, plus the two layout buttons and the export actions.
  *
  * Docking deliberately differs from the d2 and html_editor file views, which hide
  * Typora's editor and take over the content area. Those plugins exist because `.d2` and
@@ -364,8 +364,21 @@ class MarpDeckView {
       button.setAttribute("aria-pressed", String(button.dataset.view === next))
     })
 
-    if (next === "editor") this._collapsePaneForEditor()
-    else this._reposition()
+    this._applyPaneGeometry()
+  }
+
+  /**
+   * Where the pane sits, and how wide, for the current layout.
+   *
+   * The three layouts need genuinely different geometry, and an earlier version got this
+   * wrong by always docking the pane at its split width - so isolating the slides hid the
+   * editor and left the pane a narrow strip against the right edge instead of letting it
+   * fill the space the editor had vacated.
+   */
+  _applyPaneGeometry = () => {
+    if (this.layout === "editor") return this._collapsePaneForEditor()
+    if (this.layout === "preview") return this._expandPaneForPreview()
+    return this._reposition()
   }
 
   /**
@@ -381,6 +394,20 @@ class MarpDeckView {
     const width = Math.min(this._toolbarWidth(full), full)
     root.style.left = `${contentRect.left + full - width}px`
     root.style.width = `${width}px`
+  }
+
+  /**
+   * Slides-only: the editor is hidden, so the pane takes the whole content area rather than
+   * its split share. The editor's own width is reset too, so returning to two columns
+   * re-measures from the true full width instead of from a leftover narrowed value.
+   */
+  _expandPaneForPreview = () => {
+    const { root, content } = this.entities
+    const full = this._baseContentWidth()
+    if (full <= 0) return
+    const contentRect = content.getBoundingClientRect()
+    root.style.left = `${contentRect.left}px`
+    root.style.width = `${full}px`
   }
 
   /** Enough room for the buttons, but never more than the content area itself. */
@@ -451,10 +478,9 @@ class MarpDeckView {
   _onLayoutChanged = () => {
     if (!this.activeFile) return
     // The sidebar and the window can both change the content area's width, and there is no
-    // resize event for the content element itself. _reposition re-measures from scratch,
-    // so nothing needs invalidating here.
-    if (this.layout === "editor") this._collapsePaneForEditor()
-    else this._reposition()
+    // resize event for the content element itself. The geometry helpers re-measure from
+    // scratch, so nothing needs invalidating here.
+    this._applyPaneGeometry()
   }
 
   _bindResizer = () => {

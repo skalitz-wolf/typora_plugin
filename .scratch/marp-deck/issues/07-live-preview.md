@@ -6,12 +6,14 @@ Part of the Marp Deck spec: `.scratch/marp-deck/spec.md`.
 
 ## Goal
 
-Make Split update live as the user types, without the deck re-rendering wholesale on every
-keystroke.
+Make the two-column view update live as the user types, without the deck re-rendering
+wholesale on every keystroke.
 
 ## Contract
 
-- Re-render on the repo's debounced document-edited event.
+- Re-render on the repo's debounced document-edited event. That event observes `#write`, which
+  is the editor in Typora's default mode, so live preview needs no mode switch and no
+  workaround.
 - Cache per Slide by content hash, so only the Slides whose source actually changed are
   rebuilt. A one-character edit on a long deck must not rebuild every Slide.
 - Preserve the pane's scroll offset across an update, so editing a late Slide does not
@@ -30,5 +32,5 @@ keystroke.
 
 ## Done when
 
-Editing a deck in Split updates the affected Slide within the debounce window, leaves other
-Slides' DOM untouched, and does not move the scroll position.
+Editing a deck in two columns updates the affected Slide within the debounce window, leaves
+other Slides' DOM untouched, and does not move the scroll position.

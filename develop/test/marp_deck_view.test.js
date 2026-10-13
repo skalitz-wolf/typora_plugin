@@ -384,6 +384,33 @@ describe("marp deck view - view modes", () => {
     view.setLayoutFromButton("split")
     assert.equal(view.layout, "split", "there is no Split button; it must not be accepted")
   })
+
+  it("gives the pane the whole width when the slides are isolated", () => {
+    // The bug: isolating the slides hid the editor but left the pane at its split width, so
+    // it stayed a strip against the right edge with empty space where the editor had been.
+    const { view } = buildModeView(1000)
+    view._applyLayout("split")
+    assert.equal(view.entities.root.style.width, "400px")
+    view._applyLayout("preview")
+    assert.equal(view.entities.root.style.width, "1000px", "the pane must take the full width")
+    assert.equal(view.entities.root.style.left, "0px", "and start at the content area's edge")
+  })
+
+  it("gives the editor the whole width and shrinks the pane when the editor is isolated", () => {
+    const { view } = buildModeView(1000)
+    view._applyLayout("editor")
+    assert.equal(view.entities.content.style.width, "", "the editor must not be narrowed")
+    assert.ok(parseFloat(view.entities.root.style.width) < 1000, "the pane must collapse")
+  })
+
+  it("returns the pane to its split share when two columns come back", () => {
+    const { view } = buildModeView(1000)
+    view._applyLayout("preview")
+    assert.equal(view.entities.root.style.width, "1000px")
+    view._applyLayout("split")
+    assert.equal(view.entities.root.style.width, "400px")
+    assert.equal(view.entities.content.style.width, "600px")
+  })
 })
 
 describe("marp deck view - markup contract", () => {
