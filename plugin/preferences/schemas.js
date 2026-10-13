@@ -1385,6 +1385,7 @@ const schema_marp = () => [
     Switch("DECK_AUTO_PREVIEW").ShowIf(When.true("ENABLE_DECK_VIEW")),
     Integer("DECK_RENDER_DELAY").Unit(UNITS.millisecond).Min(0).ShowIf(When.true("ENABLE_DECK_VIEW")),
     Integer("DECK_PANE_WIDTH_PERCENT").Unit(UNITS.percent).Min(10).Max(80).ShowIf(When.true("ENABLE_DECK_VIEW")),
+    Switch("DECK_SYNC_SCROLL").Tooltip("DECK_SYNC_SCROLL").ShowIf(When.true("ENABLE_DECK_VIEW")),
   ),
   Group("deckExport",
     Integer("DECK_SLIDE_WIDTH").Unit(UNITS.pixel).Min(1),

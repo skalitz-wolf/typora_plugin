@@ -8,6 +8,13 @@ const EXT = ".d2"
 const ACTIVE_CLASS = "plugin-d2-file-active"
 const CONTENT_CLASS = "d2fv-content"
 const CRLF = "\r\n"
+/*
+ * What the workspace is showing. Two columns are the resting state, so no button names
+ * it: the two buttons isolate one column each, and pressing either while isolated returns
+ * to two columns. Same rule as the Marp deck, so both plugins behave alike.
+ */
+const LAYOUT_SPLIT = "split"
+const LAYOUTS = [LAYOUT_SPLIT, "editor", "preview"]
 
 /**
  * Lets Typora open standalone .d2 files: registers the extension, then takes over the
@@ -33,6 +40,7 @@ class D2FileView {
     this.renderTimer = null
     this.saveTimer = null
     this.lineEnding = "\n"
+    this.layout = LAYOUT_SPLIT
     this.options = normalizeOptions(plugin.config)
     this.transform = { scale: 1, translateX: 0, translateY: 0 }
     this.fitPending = false
@@ -122,11 +130,11 @@ class D2FileView {
       min-height: 0;
       overflow: hidden;
     }
-    #plugin-d2-file-view.is-source .d2fv-preview-pane,
+    #plugin-d2-file-view.is-editor .d2fv-preview-pane,
     #plugin-d2-file-view.is-preview .d2fv-source-pane {
       display: none;
     }
-    #plugin-d2-file-view.is-source .d2fv-workspace,
+    #plugin-d2-file-view.is-editor .d2fv-workspace,
     #plugin-d2-file-view.is-preview .d2fv-workspace {
       grid-template-columns: minmax(0, 1fr);
     }
@@ -224,12 +232,10 @@ class D2FileView {
     <div id="plugin-d2-file-view" class="plugin-common-hidden is-split" aria-label="D2">
       <div class="d2fv-header">
         <div class="d2fv-path"></div>
-        <div class="d2fv-button" role="button" tabindex="0" data-action="save" aria-disabled="true">${this.plugin.i18n.t("fileView.save")}</div>
         <div class="d2fv-button" role="button" tabindex="0" data-action="reload">${this.plugin.i18n.t("fileView.reload")}</div>
         <div class="d2fv-button" role="button" tabindex="0" data-action="external">${this.plugin.i18n.t("fileView.external")}</div>
-        <div class="d2fv-button" role="button" tabindex="0" data-view="source">${this.plugin.i18n.t("fileView.source")}</div>
+        <div class="d2fv-button" role="button" tabindex="0" data-view="editor">${this.plugin.i18n.t("fileView.editor")}</div>
         <div class="d2fv-button" role="button" tabindex="0" data-view="preview">${this.plugin.i18n.t("fileView.preview")}</div>
-        <div class="d2fv-button" role="button" tabindex="0" data-view="split" aria-pressed="true">${this.plugin.i18n.t("fileView.split")}</div>
       </div>
       <div class="d2fv-workspace">
         <div class="d2fv-pane d2fv-source-pane">
@@ -253,7 +259,6 @@ class D2FileView {
       preview: root.querySelector(".d2fv-preview"),
       previewPane: root.querySelector(".d2fv-preview-pane"),
       content: root.querySelector(`.${CONTENT_CLASS}`),
-      save: root.querySelector('[data-action="save"]'),
       reload: root.querySelector('[data-action="reload"]'),
       external: root.querySelector('[data-action="external"]'),
       views: [...root.querySelectorAll("[data-view]")],
@@ -266,13 +271,10 @@ class D2FileView {
     this._installReadMask()
     this._installSaveRedirect()
 
-    this.entities.save.addEventListener("click", () => {
-      if (this.entities.save.getAttribute("aria-disabled") !== "true") this.save()
-    })
     this.entities.reload.addEventListener("click", () => this.reload())
     this.entities.external.addEventListener("click", () => this.activeFile && this.utils.openPath(this.activeFile))
     this.entities.views.forEach(button => {
-      button.addEventListener("click", () => this._setViewMode(button.dataset.view))
+      button.addEventListener("click", () => this.setLayoutFromButton(button.dataset.view))
     })
     this.entities.textarea.addEventListener("input", () => this._onInput())
     this.entities.textarea.addEventListener("keydown", event => this._onKeydown(event))
@@ -468,7 +470,7 @@ class D2FileView {
       }
       this.entities.content.classList.add(ACTIVE_CLASS)
       this.entities.root.classList.remove("plugin-common-hidden")
-      this._setViewMode(this.plugin.config.FILE_VIEW_DEFAULT_MODE)
+    this._setLayout(this.plugin.config.FILE_VIEW_DEFAULT_MODE)
       this._scheduleRender()
     } catch (error) {
       console.error("[d2] failed to open the .d2 file view:", error)
@@ -503,7 +505,6 @@ class D2FileView {
       this._setEditorValue("")
       this.entities.content.replaceChildren()
       this._resetTransform()
-      this._syncUI()
     } catch (error) {
       console.error("[d2] failed to reset the file view:", error)
     }
@@ -559,7 +560,6 @@ class D2FileView {
   }
 
   _onInput = () => {
-    this._syncUI()
     this._scheduleSave()
     if (this.plugin.config.FILE_VIEW_AUTO_PREVIEW) this._scheduleRender()
   }
@@ -604,12 +604,23 @@ class D2FileView {
 
   // ---------- view mode ----------
 
-  _setViewMode = mode => {
-    const view = ["source", "preview", "split"].includes(mode) ? mode : "split"
-    this.entities.root.classList.remove("is-source", "is-preview", "is-split")
-    this.entities.root.classList.add(`is-${view}`)
+  /**
+   * Handles a press of one of the two layout buttons. Same rule as the Marp deck: two
+   * columns are the resting state, so no button names it. Each button isolates one column,
+   * and pressing either button while a column is isolated returns to two columns.
+   */
+  setLayoutFromButton = column => {
+    if (column !== "editor" && column !== "preview") return
+    this._setLayout(this.layout === LAYOUT_SPLIT ? column : LAYOUT_SPLIT)
+  }
+
+  _setLayout = layout => {
+    const next = LAYOUTS.includes(layout) ? layout : LAYOUT_SPLIT
+    this.layout = next
+    this.entities.root.classList.remove("is-editor", "is-preview", "is-split")
+    this.entities.root.classList.add(`is-${next}`)
     this.entities.views.forEach(button => {
-      button.setAttribute("aria-pressed", String(button.dataset.view === view))
+      button.setAttribute("aria-pressed", String(button.dataset.view === next))
     })
   }
 
@@ -639,7 +650,6 @@ class D2FileView {
       const stat = await this.utils.Package.FsExtra.stat(this.activeFile)
       this.savedSource = text
       this.currentStat = { mtimeMs: stat.mtimeMs, size: stat.size }
-      this._syncUI()
       return true
     } catch (error) {
       console.error("[d2] failed to save:", error)
@@ -695,12 +705,6 @@ class D2FileView {
   }
 
   // ---------- helpers ----------
-
-  _syncUI = () => {
-    const dirty = this._isDirty()
-    this.entities.save.classList.toggle("is-disabled", !dirty)
-    this.entities.save.setAttribute("aria-disabled", String(!dirty))
-  }
 
   _notify = (message, type = "info") => this.utils.notification.show(message, type, 4500)
 

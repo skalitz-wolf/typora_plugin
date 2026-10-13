@@ -3459,10 +3459,12 @@ INTERACTIVE_MODE = true
 # sidebar file tree.
 ENABLE_FILE_VIEW = true
 
-# Default pane layout for .d2 files
-#   source : Source only
-#   preview: Preview only
-#   split  : Source and preview side by side
+# Pane layout when a .d2 file opens. Two columns are the resting state (and there is no
+# button for it - the two buttons isolate a column, and pressing either while isolated
+# returns to two columns), so this only decides whether to isolate one on open.
+#   split  : Both columns (default)
+#   editor : Editor column only
+#   preview: Preview column only
 FILE_VIEW_DEFAULT_MODE = "split"
 
 # Refresh the preview while typing
@@ -3724,6 +3726,11 @@ DECK_RENDER_DELAY = 400
 # Width of the slide pane in split view, as a percentage of the content area.
 # Dragging the pane's left edge overrides this for the session.
 DECK_PANE_WIDTH_PERCENT = 40
+
+# Keep the editor and the slide column scrolled together. Synchronisation is anchored to
+# each slide's span in the document, so a slide appears when you scroll to its source
+# rather than at a guessed offset.
+DECK_SYNC_SCROLL = true
 
 # Slide geometry in pixels. These are Marp's own 16:9 defaults; change them for 4:3 or
 # a custom size.

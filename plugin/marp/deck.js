@@ -152,6 +152,7 @@ class MarpDeck {
   render = async markdown => {
     const result = this._getMarp().render(markdown || "", { htmlAsArray: true })
     const css = await this._buildCss(result.css)
+    const lineRanges = this._slideLineRanges()
     const slides = []
 
     for (let index = 0; index < result.html.length; index++) {
@@ -161,9 +162,31 @@ class MarpDeck {
         svg,
         hash: hash(svg),
         notes: (result.comments?.[index] || []).join("\n\n"),
+        ...lineRanges[index],
       })
     }
     return slides
+  }
+
+  /**
+   * Each slide's span in the source, read from the tokens Marp just parsed.
+   *
+   * Marp records a `map` of `[startLine, endLine]` per token, so a slide's span is the
+   * union of its tokens' maps. This is what makes scroll sync anchored to slides rather
+   * than a pixel ratio: a two-line slide and a fifty-line slide are the same height on
+   * screen, so without the source spans the two columns cannot be lined up correctly.
+   */
+  _slideLineRanges = () => {
+    const tokenGroups = this._getMarp().lastSlideTokens
+    if (!Array.isArray(tokenGroups)) return []
+
+    return tokenGroups.map(tokens => {
+      const maps = (tokens || []).filter(token => token?.map).map(token => token.map)
+      if (!maps.length) return {}
+      const start = Math.min(...maps.map(m => m[0]))
+      const end = Math.max(...maps.map(m => m[1]))
+      return { startLine: start, endLine: end }
+    })
   }
 
   _buildCss = async css => {

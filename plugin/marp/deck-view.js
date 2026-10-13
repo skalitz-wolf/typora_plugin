@@ -4,6 +4,12 @@ const { buildPptx } = require("./pptx.js")
 const { buildPdf } = require("./pdf.js")
 const { buildFontFaceCss, isFontFile } = require("./fonts.js")
 const { mimeForExtension } = require("./slides.js")
+const {
+  scrollRange,
+  slideSpans,
+  toSlideFraction,
+  toSourceFraction,
+} = require("./scroll-sync.js")
 
 const ACTIVE_CLASS = "plugin-marp-deck-active"
 /*
@@ -39,6 +45,9 @@ class MarpDeckView {
     this.renderTimer = null
     this.paneWidth = 0
     this.panning = null
+    this.slideSpans = []
+    this.syncingScroll = false
+    this.syncRaf = null
     this.exportCancelled = false
     this.exporting = false
     this.deck = new MarpDeck({
@@ -226,6 +235,7 @@ class MarpDeckView {
 
     this._bindViewModeButtons()
     this._bindResizer()
+    this._bindScrollSync()
 
     this.utils.eventHub.on(this.utils.eventHub.eventType.fileContentLoaded, this._onFileContentLoaded)
     this.utils.eventHub.on(this.utils.eventHub.eventType.fileEdited, this._onFileEdited)
@@ -323,6 +333,7 @@ class MarpDeckView {
       this.entities.content.classList.remove(ACTIVE_CLASS, "is-preview")
       this._restoreContentWidth()
       this.entities.body.replaceChildren()
+      this._teardownScrollSync()
     } catch (error) {
       console.error("[marp] failed to leave deck mode:", error)
     }
@@ -483,6 +494,70 @@ class MarpDeckView {
     this._applyPaneGeometry()
   }
 
+  // ---------- scroll sync ----------
+
+  /**
+   * Records where each slide sits in the document, so the two columns can be lined up.
+   * Without the source spans the best possible sync is a pixel ratio, which drifts because
+   * slides of very different source lengths are all the same height on screen.
+   */
+  _recordSlideSpans = (slides, totalLines) => {
+    this.slideSpans = slideSpans(slides, totalLines)
+  }
+
+  /** Bind the two scroll listeners once. */
+  _bindScrollSync = () => {
+    if (this._scrollSyncBound) return
+    this._scrollSyncBound = true
+    const { content, body } = this.entities
+    content?.addEventListener("scroll", this._onEditorScroll, { passive: true })
+    body?.addEventListener("scroll", this._onSlideScroll, { passive: true })
+  }
+
+  /**
+   * Editor -> slides. Guarded by `syncingScroll` so that moving one column does not bounce
+   * the other back, which is what turns a sync into a fight.
+   */
+  _onEditorScroll = () => {
+    if (this.syncingScroll || this.layout !== LAYOUT_SPLIT) return
+    if (!this.plugin.config.DECK_SYNC_SCROLL) return
+    const { content, body } = this.entities
+    const range = scrollRange(content)
+    if (range <= 0) return
+
+    const target = scrollRange(body) * toSlideFraction(content.scrollTop / range, this.slideSpans)
+    this.syncingScroll = true
+    body.scrollTop = target
+    this._releaseSync()
+  }
+
+  /** Slides -> editor. The inverse mapping, for scrolling the slide column. */
+  _onSlideScroll = () => {
+    if (this.syncingScroll || this.layout !== LAYOUT_SPLIT) return
+    if (!this.plugin.config.DECK_SYNC_SCROLL) return
+    const { content, body } = this.entities
+    const range = scrollRange(body)
+    if (range <= 0) return
+
+    const target = scrollRange(content) * toSourceFraction(body.scrollTop / range, this.slideSpans)
+    this.syncingScroll = true
+    content.scrollTop = target
+    this._releaseSync()
+  }
+
+  /** Clear the guard after the assignment has been applied, so the echo is swallowed. */
+  _releaseSync = () => {
+    cancelAnimationFrame(this.syncRaf)
+    this.syncRaf = requestAnimationFrame(() => { this.syncingScroll = false })
+  }
+
+  /** Drop sync when leaving two columns; nothing to line up without both columns. */
+  _teardownScrollSync = () => {
+    cancelAnimationFrame(this.syncRaf)
+    this.syncingScroll = false
+    this.slideSpans = []
+  }
+
   _bindResizer = () => {
     const { resizer } = this.entities
     if (!resizer) return
@@ -542,6 +617,7 @@ class MarpDeckView {
       if (token !== this.renderToken) return
       const slides = await this.deck.render(source)
       if (token !== this.renderToken) return
+      this._recordSlideSpans(slides, source.split("\n").length)
       this._paint(slides, scrollTop)
     } catch (error) {
       if (token !== this.renderToken) return

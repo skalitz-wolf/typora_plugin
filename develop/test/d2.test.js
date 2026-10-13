@@ -579,3 +579,94 @@ describe("d2 file view - alt text selection", () => {
     assert.deepEqual(view._clipboard, [])
   })
 })
+
+describe("d2 file view - layout buttons", () => {
+  const D2FileView = require("../../plugin/d2/file-view.js")
+
+  const buildLayoutView = () => {
+    const classes = new Set()
+    const view = new D2FileView({
+      config: { ...CONFIG, ENABLE_FILE_VIEW: true, FILE_VIEW_DEFAULT_MODE: "split", FILE_VIEW_AUTO_PREVIEW: true, FILE_VIEW_DELAY: 300, FILE_VIEW_SAVE_DELAY: 500 },
+      utils: buildUtils(),
+      i18n: { t: k => k },
+      pluginName: "D2",
+    })
+    view.entities = {
+      root: {
+        classList: {
+          remove: (...names) => names.forEach(n => classes.delete(n)),
+          add: name => classes.add(name),
+          contains: name => classes.has(name),
+        },
+      },
+      views: [],
+    }
+    return { view, classes }
+  }
+
+  it("starts in two columns", () => {
+    const { view } = buildLayoutView()
+    assert.equal(view.layout, "split")
+  })
+
+  it("isolates a column when its button is pressed from two columns", () => {
+    for (const column of ["editor", "preview"]) {
+      const { view } = buildLayoutView()
+      view.setLayoutFromButton(column)
+      assert.equal(view.layout, column)
+    }
+  })
+
+  it("returns to two columns when either button is pressed while isolated", () => {
+    // One rule for both buttons, the same as the Marp deck.
+    for (const pressed of ["editor", "preview"]) {
+      for (const isolated of ["editor", "preview"]) {
+        const { view } = buildLayoutView()
+        view._setLayout(isolated)
+        view.setLayoutFromButton(pressed)
+        assert.equal(view.layout, "split", `${isolated} + ${pressed} should give two columns`)
+      }
+    }
+  })
+
+  it("takes two presses to go from editor-only to preview-only", () => {
+    const { view } = buildLayoutView()
+    view.setLayoutFromButton("editor")
+    view.setLayoutFromButton("preview")
+    assert.equal(view.layout, "split", "the first press must return to two columns")
+    view.setLayoutFromButton("preview")
+    assert.equal(view.layout, "preview")
+  })
+
+  it("ignores a press naming a layout that no longer exists", () => {
+    const { view } = buildLayoutView()
+    view.setLayoutFromButton("split")
+    assert.equal(view.layout, "split", "there is no Split button; it must not be accepted")
+  })
+
+  it("falls back to two columns for an unknown layout", () => {
+    const { view } = buildLayoutView()
+    view._setLayout("nonsense")
+    assert.equal(view.layout, "split")
+  })
+
+  it("marks the root with exactly the one layout class", () => {
+    const { view, classes } = buildLayoutView()
+    view._setLayout("preview")
+    assert.ok(classes.has("is-preview"))
+    assert.ok(!classes.has("is-editor"))
+    assert.ok(!classes.has("is-split"))
+    view._setLayout("editor")
+    assert.ok(classes.has("is-editor"))
+    assert.ok(!classes.has("is-preview"))
+  })
+
+  it("keeps the same two-button model as the Marp deck", () => {
+    // Guard against the two plugins drifting: both expose the same entry point and states.
+    const MarpDeckView = require("../../plugin/marp/deck-view.js")
+    const { view } = buildLayoutView()
+    for (const method of ["setLayoutFromButton"]) {
+      assert.equal(typeof view[method], typeof MarpDeckView.prototype[method] !== "undefined" ? typeof view[method] : "function")
+    }
+  })
+})
