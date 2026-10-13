@@ -43,7 +43,7 @@ const initDSL = (dsl) => {
   const withDefaults = {
     Hint: (builder) => (...args) => builder(...args).Unsafe(false),
     Array: (builder) => (...args) => builder(...args).AllowDuplicates(false),
-    Palette: (builder) => (...args) => builder(...args).Dimensions(1).AllowJagged(true).DefaultColor("#FFFFFF"),
+    Palette: (builder) => (...args) => builder(...args).MinItems(1).Dimensions(1).AllowJagged(true).DefaultColor("#FFFFFF"),
     Table: (builder) => (...args) => builder(...args).SubFormOptions("boxDependencyUnmetAction", "readonly").SubFormOptions("collapsibleBox", false),
   }
   const withI18n = (builder) => (key, ...args) => {
@@ -680,6 +680,7 @@ const schema_export_enhance = () => [
 
 const schema_text_stylize = () => [
   FRAG.Base(true),
+  Text("PANEL_WIDTH"),
   Transfer("TOOLS").Options(OPTS.textStylizeTools).MinItems(1),
   Table("ACTION_HOTKEYS")
     .Headers(["hotkey", "action"])
@@ -917,9 +918,6 @@ const schema_right_click_menu = () => [
       NAME: "",
       LIST: [],
     }),
-  Group("advanced",
-    Switch("FIND_LOST_PLUGINS"),
-  ),
   FRAG.SettingHandler(),
 ]
 
@@ -934,7 +932,9 @@ const schema_pie_menu = () => [
         Text("CALLBACK"),
       ),
     ])
-    .DefaultValues({ ICON: "fa fa-bomb", CALLBACK: "" }),
+    .DefaultValues({ ICON: "fa fa-bomb", CALLBACK: "" })
+    .MinItems(1)
+    .MaxItems(16),
   FRAG.SettingHandler(),
 ]
 
