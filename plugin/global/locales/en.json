@@ -1346,9 +1346,8 @@
     "act.toggle_deck_mode": "Toggle Deck Mode",
     "act.export_pptx": "Export Deck as PPTX",
     "act.export_pdf": "Export Deck as PDF",
-    "deck.source": "Source",
+    "deck.editor": "Editor",
     "deck.preview": "Preview",
-    "deck.split": "Split",
     "deck.exportPptx": "PPTX",
     "deck.exportPdf": "PDF",
     "deck.cancel": "Cancel",
@@ -1357,10 +1356,8 @@
     "deck.exportFailed": "Export failed",
     "deck.exportCancelled": "Export cancelled",
     "deck.exportBusy": "An export is already running",
-    "deck.saveFailed": "Could not save the document; the export used the text on screen",
     "deck.empty": "This document has no slides",
-    "deck.notMarkdown": "Deck mode only works on Markdown documents",
-    "deck.needSourceMode": "Live preview needs Source mode: outside it Typora re-serializes the document, which drops Marp's directives."
+    "deck.notMarkdown": "Deck mode only works on Markdown documents"
   },
   "infographic": {
     "pluginName": "Infographic",

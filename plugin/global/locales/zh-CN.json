@@ -1346,9 +1346,8 @@
     "act.toggle_deck_mode": "切换演示文稿模式",
     "act.export_pptx": "导出为 PPTX",
     "act.export_pdf": "导出为 PDF",
-    "deck.source": "源码",
+    "deck.editor": "编辑",
     "deck.preview": "预览",
-    "deck.split": "分栏",
     "deck.exportPptx": "PPTX",
     "deck.exportPdf": "PDF",
     "deck.cancel": "取消",
@@ -1357,10 +1356,8 @@
     "deck.exportFailed": "导出失败",
     "deck.exportCancelled": "已取消导出",
     "deck.exportBusy": "已有导出任务在进行",
-    "deck.saveFailed": "文档保存失败，已按屏幕上的内容导出",
     "deck.empty": "该文档没有幻灯片",
-    "deck.notMarkdown": "演示文稿模式仅适用于 Markdown 文档",
-    "deck.needSourceMode": "实时预览需要源码模式：非源码模式下 Typora 会重新序列化文档，会丢掉 Marp 的指令。"
+    "deck.notMarkdown": "演示文稿模式仅适用于 Markdown 文档"
   },
   "infographic": {
     "pluginName": "Infographic",

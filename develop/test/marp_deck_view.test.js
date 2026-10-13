@@ -276,68 +276,113 @@ describe("marp deck view - view modes", () => {
         },
       },
       views: [
-        { dataset: { view: "source" }, setAttribute() {} },
+        { dataset: { view: "editor" }, setAttribute() {} },
         { dataset: { view: "preview" }, setAttribute() {} },
-        { dataset: { view: "split" }, setAttribute() {} },
       ],
     }
     view.activeFile = "deck.md"
-    view._ensureSourceMode = () => {}
-    view._watchSourceMode = () => {}
     return { view, classes, contentClasses }
   }
 
-  it("falls back to split for an unknown mode", () => {
+  it("falls back to two columns for an unknown layout", () => {
     const { view } = buildModeView()
-    view.setViewMode("nonsense")
-    assert.equal(view.viewMode, "split")
+    view._applyLayout("nonsense")
+    assert.equal(view.layout, "split")
   })
 
-  it("keeps the pane visible in every view mode, so the toolbar is never lost", () => {
-    // The regression: Source used to hide the whole pane, which hid the view buttons with
-    // it and made Source a one-way trip.
-    for (const mode of ["source", "preview", "split"]) {
-      const { view, classes } = buildModeView()
-      view.setViewMode(mode)
-      assert.ok(!classes.has("plugin-common-hidden"), `the pane must stay visible in ${mode}`)
+  it("starts in two columns", () => {
+    const { view } = buildModeView()
+    assert.equal(view.layout, "split")
+  })
+
+  it("isolates the editor when Editor is pressed from two columns", () => {
+    const { view } = buildModeView()
+    view.setLayoutFromButton("editor")
+    assert.equal(view.layout, "editor")
+  })
+
+  it("isolates the slides when Preview is pressed from two columns", () => {
+    const { view } = buildModeView()
+    view.setLayoutFromButton("preview")
+    assert.equal(view.layout, "preview")
+  })
+
+  it("returns to two columns when either button is pressed while isolated", () => {
+    // One rule for both buttons, so there is nothing to remember.
+    for (const pressed of ["editor", "preview"]) {
+      for (const isolated of ["editor", "preview"]) {
+        const { view } = buildModeView()
+        view._applyLayout(isolated)
+        view.setLayoutFromButton(pressed)
+        assert.equal(view.layout, "split", `${isolated} + ${pressed} should give two columns`)
+      }
     }
   })
 
-  it("marks the pane compact only in Source", () => {
-    const { view, classes } = buildModeView()
-    view.setViewMode("source")
-    assert.ok(classes.has("is-source"))
-    view.setViewMode("split")
-    assert.ok(!classes.has("is-source"))
+  it("takes two presses to go from editor-only to slides-only", () => {
+    // Deliberate: the first press returns to two columns rather than jumping across.
+    const { view } = buildModeView()
+    view.setLayoutFromButton("editor")
+    assert.equal(view.layout, "editor")
+    view.setLayoutFromButton("preview")
+    assert.equal(view.layout, "split", "the first press must return to two columns")
+    view.setLayoutFromButton("preview")
+    assert.equal(view.layout, "preview")
   })
 
-  it("hides only the slide column in Source", () => {
+  it("never hides the pane, so the buttons are always reachable", () => {
+    // The regression: isolating a column used to hide the whole pane, and the buttons went
+    // with it, making the choice a one-way trip.
+    for (const layout of ["split", "editor", "preview"]) {
+      const { view, classes } = buildModeView()
+      view._applyLayout(layout)
+      assert.ok(!classes.has("plugin-common-hidden"), `the pane must stay visible in ${layout}`)
+    }
+  })
+
+  it("hides only the slide column when the editor is isolated", () => {
     const { view } = buildModeView()
     let bodyHidden = null
     view.entities.body.classList = {
       toggle: (name, on) => { if (name === "plugin-common-hidden") bodyHidden = on },
       add() {}, remove() {}, contains: () => false,
     }
-    view.setViewMode("source")
-    assert.equal(bodyHidden, true, "the slide column should be hidden in Source")
-    view.setViewMode("split")
-    assert.equal(bodyHidden, false, "the slide column should return in Split")
+    view._applyLayout("editor")
+    assert.equal(bodyHidden, true, "the slide column should be hidden")
+    view._applyLayout("split")
+    assert.equal(bodyHidden, false, "the slide column should return")
   })
 
-  it("gives the editor the full width in Source", () => {
+  it("gives the editor the full width when it is isolated", () => {
     const { view } = buildModeView(1000)
-    view.setViewMode("split")
+    view._applyLayout("split")
     assert.equal(view.entities.content.style.width, "600px")
-    view.setViewMode("source")
-    assert.equal(view.entities.content.style.width, "", "Source must not narrow the editor")
+    view._applyLayout("editor")
+    assert.equal(view.entities.content.style.width, "", "the editor must not be narrowed")
   })
 
-  it("still marks preview mode, which hides the editor instead", () => {
+  it("hides the editor rather than narrowing it when the slides are isolated", () => {
     const { view, contentClasses } = buildModeView()
-    view.setViewMode("preview")
+    view._applyLayout("preview")
     assert.ok(contentClasses.has("is-preview"))
-    view.setViewMode("split")
+    view._applyLayout("split")
     assert.ok(!contentClasses.has("is-preview"))
+  })
+
+  it("marks the pane compact only while the editor is isolated", () => {
+    const { view, classes } = buildModeView()
+    view._applyLayout("editor")
+    assert.ok(classes.has("is-editor-only"))
+    view._applyLayout("preview")
+    assert.ok(!classes.has("is-editor-only"))
+  })
+
+  it("presses of the two buttons are the only way the layout changes", () => {
+    // A button that names a layout the plugin does not have must be ignored rather than
+    // silently treated as one of the real ones.
+    const { view } = buildModeView()
+    view.setLayoutFromButton("split")
+    assert.equal(view.layout, "split", "there is no Split button; it must not be accepted")
   })
 })
 
@@ -362,11 +407,12 @@ describe("marp deck view - markup contract", () => {
     assert.match(buildViewForMarkup().html(), /plugin-common-hidden/)
   })
 
-  it("offers the three view modes and both export formats as divs, not buttons", () => {
+  it("offers exactly the two layout buttons and both export formats, as divs", () => {
     const html = buildViewForMarkup().html()
-    for (const view of ["source", "preview", "split"]) {
-      assert.ok(html.includes(`data-view="${view}"`), `missing the ${view} view control`)
-    }
+    assert.ok(html.includes('data-view="editor"'))
+    assert.ok(html.includes('data-view="preview"'))
+    // There is deliberately no Split button: two columns is the resting state, not a choice.
+    assert.ok(!html.includes('data-view="split"'), "there must be no Split button")
     assert.ok(html.includes('data-action="export-pptx"'))
     assert.ok(html.includes('data-action="export-pdf"'))
     // Repo rule: plugin UI must not use native button elements.

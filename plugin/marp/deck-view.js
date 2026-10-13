@@ -6,7 +6,14 @@ const { buildFontFaceCss, isFontFile } = require("./fonts.js")
 const { mimeForExtension } = require("./slides.js")
 
 const ACTIVE_CLASS = "plugin-marp-deck-active"
-const VIEW_MODES = ["source", "preview", "split"]
+/*
+ * What the deck surface is showing. Two columns are the resting state; the two buttons
+ * each ask for one column alone, and pressing either button while already alone returns to
+ * two columns. So there is no separate "split" button - two columns is simply what you get
+ * when neither column has been isolated.
+ */
+const LAYOUT_SPLIT = "split"
+const LAYOUTS = [LAYOUT_SPLIT, "editor", "preview"]
 
 /**
  * The Deck view: an explicit, remembered per-file switch that turns a Markdown document
@@ -26,7 +33,7 @@ class MarpDeckView {
     this.entities = {}
     this.activeFile = ""
     this.enabledFiles = new Set()
-    this.viewMode = "split"
+    this.layout = LAYOUT_SPLIT
     this.slideCache = new Map()
     this.renderToken = 0
     this.renderTimer = null
@@ -87,20 +94,20 @@ class MarpDeckView {
      * needs the full height, and a full-height transparent overlay would swallow every click
      * on the text behind it.
      */
-    #plugin-marp-deck.is-source {
+    #plugin-marp-deck.is-editor-only {
       height: auto;
       background: transparent;
       border-left: 0;
       box-shadow: none;
       pointer-events: none;
     }
-    #plugin-marp-deck.is-source .marp-deck-header {
+    #plugin-marp-deck.is-editor-only .marp-deck-header {
       pointer-events: auto;
       border: 1px solid var(--window-border-color, rgba(15, 23, 42, .12));
       border-radius: 4px;
       box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
     }
-    #plugin-marp-deck.is-source .marp-deck-resizer {
+    #plugin-marp-deck.is-editor-only .marp-deck-resizer {
       display: none;
     }
     #plugin-marp-deck .marp-deck-resizer {
@@ -191,9 +198,8 @@ class MarpDeckView {
         <div class="marp-deck-title"></div>
         <div class="marp-deck-button" role="button" tabindex="0" data-action="export-pptx">${this.plugin.i18n.t("deck.exportPptx")}</div>
         <div class="marp-deck-button" role="button" tabindex="0" data-action="export-pdf">${this.plugin.i18n.t("deck.exportPdf")}</div>
-        <div class="marp-deck-button" role="button" tabindex="0" data-view="source">${this.plugin.i18n.t("deck.source")}</div>
+        <div class="marp-deck-button" role="button" tabindex="0" data-view="editor">${this.plugin.i18n.t("deck.editor")}</div>
         <div class="marp-deck-button" role="button" tabindex="0" data-view="preview">${this.plugin.i18n.t("deck.preview")}</div>
-        <div class="marp-deck-button" role="button" tabindex="0" data-view="split" aria-pressed="true">${this.plugin.i18n.t("deck.split")}</div>
       </div>
       <div class="marp-deck-body"></div>
     </div>
@@ -242,7 +248,7 @@ class MarpDeckView {
       })
     })
     this.entities.views.forEach(button => {
-      button.addEventListener("click", () => this.setViewMode(button.dataset.view))
+      button.addEventListener("click", () => this.setLayoutFromButton(button.dataset.view))
     })
   }
 
@@ -297,14 +303,13 @@ class MarpDeckView {
 
   _activate = filePath => {
     this.activeFile = this._storageKey(filePath)
-    // The source-mode prompt is per document, so a new deck gets its own chance to ask.
-    this._sourceModeRequested = false
     this.entities.root.classList.remove("plugin-common-hidden")
     this.entities.content.classList.add(ACTIVE_CLASS)
     this.entities.title.textContent = this.utils.getFileName() || this.activeFile
     this.entities.title.title = filePath
-    this.setViewMode(this.viewMode)
-    this._reposition()
+    // Entering deck mode always starts in two columns, regardless of how the last deck was
+    // left, so the layout a document opens in is predictable.
+    this._applyLayout(LAYOUT_SPLIT)
     this._render()
   }
 
@@ -323,107 +328,63 @@ class MarpDeckView {
     }
   }
 
-  // ---------- view modes ----------
-
-  setViewMode = mode => {
-    const view = VIEW_MODES.includes(mode) ? mode : "split"
-    this.viewMode = view
-    this.entities.content.classList.toggle("is-preview", view === "preview")
-    this.entities.views.forEach(button => {
-      button.setAttribute("aria-pressed", String(button.dataset.view === view))
-    })
-
-    /*
-     * Deck mode deliberately does NOT switch Typora into source mode. Doing so would hide
-     * the pinned sidebar - Typora's own rule is
-     * `.pin-outline:not(.typora-sourceview-on) #typora-sidebar{display:block}` - and the
-     * file tree and outline are part of how the user works.
-     *
-     * Source mode is entered only when the user asks for it by picking the Source view, or
-     * when they need the raw text to stay live while typing (see _watchSourceMode).
-     */
-    this._watchSourceMode()
-    if (view === "source") this._ensureSourceMode(true)
-
-    // The pane stays mounted in every view mode, Source included. Its toolbar is the only
-    // way back out of Source, so hiding the pane there would make the choice one-way.
-    this._applyViewLayout()
-  }
+  // ---------- layout ----------
 
   /**
-   * The pane is never hidden while deck mode is on. In Source it collapses to a compact
-   * toolbar floating over the editor's top-right; in Preview and Split it is the full-height
-   * slide column. Hiding the pane in Source - as an earlier version did - made the view
-   * buttons disappear with it and turned the choice into a one-way trip.
+   * Handles a press of one of the two layout buttons.
+   *
+   * Two columns are the resting state, so the buttons do not name it: each button asks for
+   * one column on its own, and pressing a button while a single column is already showing
+   * returns to two columns. That is one rule for both buttons, and it means "show me just
+   * the editor" and "show me just the slides" are each one press away from two columns.
+   *
+   * Consequence worth knowing: going from editor-only to slides-only takes two presses,
+   * because the first one returns to two columns. That is deliberate - the single-column
+   * states are for looking closely at one thing, not for switching between them.
    */
-  _applyViewLayout = () => {
+  setLayoutFromButton = column => {
+    if (column !== "editor" && column !== "preview") return
+    this._applyLayout(this.layout === LAYOUT_SPLIT ? column : LAYOUT_SPLIT)
+  }
+
+  _applyLayout = layout => {
+    const next = LAYOUTS.includes(layout) ? layout : LAYOUT_SPLIT
+    this.layout = next
+
     const { root, body, content } = this.entities
     if (!root) return
 
-    const isSource = this.viewMode === "source"
-    root.classList.toggle("is-source", isSource)
+    // The pane is never hidden: its header carries the buttons that get you back out.
     root.classList.remove("plugin-common-hidden")
-    if (body) body.classList.toggle("plugin-common-hidden", isSource)
-    content.classList.toggle("is-preview", this.viewMode === "preview")
+    root.classList.toggle("is-editor-only", next === "editor")
+    if (body) body.classList.toggle("plugin-common-hidden", next === "editor")
+    // Hiding the editor is what makes the slide column full width.
+    content.classList.toggle("is-preview", next === "preview")
+    this.entities.views.forEach(button => {
+      button.setAttribute("aria-pressed", String(button.dataset.view === next))
+    })
 
-    if (isSource) {
-      // Source gives the editor the full width; the toolbar just floats above it.
-      this._restoreContentWidth()
-      const full = this._baseContentWidth()
-      if (full <= 0) return
-      const contentRect = content.getBoundingClientRect()
-      const width = Math.min(this._sourceToolbarWidth(full), full)
-      root.style.left = `${contentRect.left + full - width}px`
-      root.style.width = `${width}px`
-    } else {
-      this._reposition()
-    }
+    if (next === "editor") this._collapsePaneForEditor()
+    else this._reposition()
   }
-
-  /** Enough room for the view buttons, but never more than the content area. */
-  _sourceToolbarWidth = available => Math.min(Math.max(available * 0.5, 320), available)
-
-  _ensureSourceMode = want => {
-    const sourceView = File?.editor?.sourceView
-    if (!sourceView || typeof File.toggleSourceMode !== "function") return
-    if (want && !sourceView.inSourceMode) File.toggleSourceMode()
-  }
-
-  _isSourceMode = () => Boolean(File?.editor?.sourceView?.inSourceMode)
 
   /**
-   * Keeps the preview honest about where the deck's text comes from.
-   *
-   * `File.editor.getMarkdown()` reads the raw text in source mode but re-serializes the AST
-   * in the rendered view, and that re-serialization drops the directives Marp depends on -
-   * front matter and `_class` comments - so a preview built on it would silently lose the
-   * deck's theme and per-slide classes. Live preview therefore needs source mode, and the
-   * first time the user edits a deck we ask for it rather than rendering something wrong.
-   *
-   * The ask is once per document: if the user declines, the preview stops tracking edits
-   * rather than nagging, and the Export action still re-reads on demand.
+   * Editor-only: the editor takes the full width and the pane shrinks to its header, which
+   * floats over the editor's top-right so the buttons stay reachable.
    */
-  _watchSourceMode = () => {
-    if (this._sourceModeWatchInstalled) return
-    this._sourceModeWatchInstalled = true
-    this._onFileEdited = () => {
-      if (!this.activeFile || this.viewMode === "source") return
-      if (!this.plugin.config.DECK_AUTO_PREVIEW) return
-      if (!this._isSourceMode()) {
-        this._requestSourceModeOnce()
-        return
-      }
-      clearTimeout(this.renderTimer)
-      this.renderTimer = setTimeout(this._render, this.plugin.config.DECK_RENDER_DELAY)
-    }
+  _collapsePaneForEditor = () => {
+    const { root, content } = this.entities
+    this._restoreContentWidth()
+    const full = this._baseContentWidth()
+    if (full <= 0) return
+    const contentRect = content.getBoundingClientRect()
+    const width = Math.min(this._toolbarWidth(full), full)
+    root.style.left = `${contentRect.left + full - width}px`
+    root.style.width = `${width}px`
   }
 
-  _requestSourceModeOnce = () => {
-    if (this._sourceModeRequested) return
-    this._sourceModeRequested = true
-    this._notify(this.plugin.i18n.t("deck.needSourceMode"), "warning", 8000)
-    this._ensureSourceMode(true)
-  }
+  /** Enough room for the buttons, but never more than the content area itself. */
+  _toolbarWidth = available => Math.min(Math.max(available * 0.5, 320), available)
 
   // ---------- docking ----------
 
@@ -492,7 +453,8 @@ class MarpDeckView {
     // The sidebar and the window can both change the content area's width, and there is no
     // resize event for the content element itself. _reposition re-measures from scratch,
     // so nothing needs invalidating here.
-    if (this.viewMode !== "source") this._reposition()
+    if (this.layout === "editor") this._collapsePaneForEditor()
+    else this._reposition()
   }
 
   _bindResizer = () => {
@@ -523,13 +485,12 @@ class MarpDeckView {
   // ---------- live preview ----------
 
   /**
-   * Reads the deck's source as raw text, never through a markdown re-serialization: Marp
-   * reads front matter and HTML comments as directives, and a round-trip through the AST
-   * drops them (see ADR-0005 for the measurement).
+   * Reads the deck's Markdown.
    *
-   * `getMarkdown()` is raw in source mode and re-serialized everywhere else, so this is
-   * only safe to use for the preview, which asks for source mode first. Export uses
-   * `_readDeckForExport`, which guarantees raw text in every mode.
+   * `getMarkdown()` is faithful in both of Typora's modes - front matter survives as a
+   * `meta_block` whose serialization rebuilds the `---` fences, and HTML comments pass
+   * through verbatim - so this is safe for the preview and the export alike, and needs no
+   * mode switch. See ADR-0005.
    */
   _readDeckSource = async () => {
     if (typeof this.utils.getCurrentFileContent === "function") {
@@ -539,33 +500,15 @@ class MarpDeckView {
     return this._readDeckFromDisk()
   }
 
+  /** Fallback for when Typora's own accessor is unavailable. */
   _readDeckFromDisk = async () => {
     const filePath = this.utils.getFilePath()
     if (!filePath) return ""
     return this.utils.Package.FsExtra.readFile(filePath, "utf8")
   }
 
-  /**
-   * The export's source of truth.
-   *
-   * In source mode `getMarkdown()` is already raw and current, so it is used directly.
-   * Outside it the only raw source is the file, so the document is saved first and read
-   * back - exporting a deck whose theme and per-slide classes were silently dropped would
-   * be worse than the save. If the save fails, the in-memory text is used and the user is
-   * told the export may not match the file.
-   */
-  _readDeckForExport = async () => {
-    if (this._isSourceMode()) return this._readDeckSource()
-    const saved = await this._flushDocument()
-    if (!saved) {
-      this._notify(this.plugin.i18n.t("deck.saveFailed"), "error")
-      return this._readDeckSource()
-    }
-    return this._readDeckFromDisk()
-  }
-
   _render = async () => {
-    if (!this.activeFile || this.viewMode === "source") return
+    if (!this.activeFile || this.layout === "editor") return
     const token = ++this.renderToken
     const scrollTop = this.entities.body.scrollTop
     try {
@@ -727,7 +670,7 @@ class MarpDeckView {
 
       // Outside source mode the raw text only exists on disk, so the export saves first and
       // reads back. That is what keeps Marp's directives intact in the output.
-      const source = await this._readDeckForExport()
+      const source = await this._readDeckSource()
       const slides = await this.deck.render(source)
       if (!slides.length) {
         this._notify(this.plugin.i18n.t("deck.empty"), "error")
@@ -771,23 +714,6 @@ class MarpDeckView {
       this.exporting = false
       this._setExportBusy(false)
       this._clearProgress()
-    }
-  }
-
-  /** Ctrl+S is Typora's; this just asks it to save and reports whether the document is clean. */
-  _flushDocument = async () => {
-    const filePath = this.utils.getFilePath()
-    if (!filePath) return false
-    try {
-      if (typeof File?.editor?.saveUseNode === "function") {
-        await File.editor.saveUseNode()
-      } else if (typeof File?.saveUseNode === "function") {
-        await File.saveUseNode()
-      }
-      return true
-    } catch (error) {
-      console.error("[marp] could not save before exporting:", error)
-      return false
     }
   }
 
