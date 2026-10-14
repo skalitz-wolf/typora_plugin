@@ -1,1 +1,140 @@
+[d2]
+ENABLE = true
 
+[window_tab]
+ENABLE = false
+
+[search_multi]
+ENABLE = false
+
+[commander]
+ENABLE = false
+
+[command_palette]
+ENABLE = false
+
+[right_outline]
+ENABLE = false
+
+[preferences]
+ENABLE = false
+
+[updater]
+ENABLE = false
+
+[markdownlint]
+ENABLE = false
+
+[md_padding]
+ENABLE = false
+
+[fence_enhance]
+ENABLE = false
+
+[easy_modify]
+ENABLE = false
+
+[text_stylize]
+ENABLE = false
+
+[cjk_symbol_pairing]
+ENABLE = false
+
+[slash_commands]
+ENABLE = false
+
+[right_click_menu]
+ENABLE = false
+
+[resize_image]
+ENABLE = false
+
+[resize_table]
+ENABLE = false
+
+[editor_width_slider]
+ENABLE = false
+
+[resource_manager]
+ENABLE = false
+
+[templater]
+ENABLE = false
+
+[auto_number]
+ENABLE = false
+
+[read_only]
+ENABLE = false
+
+[blur]
+ENABLE = false
+
+[dark]
+ENABLE = false
+
+[no_image]
+ENABLE = false
+
+[static_markers]
+ENABLE = false
+
+[myopic_defocus]
+ENABLE = false
+
+[sidebar_enhance]
+ENABLE = false
+
+[image_viewer]
+ENABLE = false
+
+[kanban]
+ENABLE = false
+
+[chat]
+ENABLE = false
+
+[timeline]
+ENABLE = false
+
+[echarts]
+ENABLE = false
+
+[chart]
+ENABLE = false
+
+[vega_lite]
+ENABLE = false
+
+[function_plot]
+ENABLE = false
+
+[wavedrom]
+ENABLE = false
+
+[calendar]
+ENABLE = false
+
+[abc]
+ENABLE = false
+
+[drawIO]
+ENABLE = false
+
+[plantUML]
+ENABLE = false
+
+[infographic]
+ENABLE = false
+
+[callouts]
+ENABLE = false
+
+[markmap]
+ENABLE = false
+
+[hotkeys]
+ENABLE = false
+
+[action_buttons]
+ENABLE = false
